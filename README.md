@@ -2,7 +2,7 @@
 
 > **Skill for AI coding agents** + static analyzer CLI for developing with [StarHTML](https://github.com/banditburai/starHTML).
 
-StarHTML is a Python-first framework for building reactive web applications using Datastar.
+StarHTML is a Python-first reactive web framework using Datastar.
 This repo helps AI agents (Claude Code, OpenCode, Cursor, etc.) write correct StarHTML code
 and catch framework-specific bugs before runtime.
 
@@ -10,68 +10,102 @@ and catch framework-specific bugs before runtime.
 
 ## 🤖 For AI Agents
 
-If you are an AI agent reading this repo:
-
-### Step 1 — Install the Skill
-
-Clone this repo to your skills directory and load `starhtml/SKILL.md`:
+### Recommended: Install via `npx skills`
 
 ```bash
-# Personal skill (all projects)
-git clone https://github.com/renatocaliari/starhtml-skill.git ~/.agents/skills/starhtml
-
-# Or project skill (shared with team)
-git clone https://github.com/renatocaliari/starhtml-skill.git .agents/skills/starhtml
+# Install the skill using the skills manager
+npx skills add renatocaliari/starhtml-skill
 ```
 
-Then load the skill:
-- **Claude Code**: Already loads from `~/.claude/skills/` or `.claude/skills/`
-- **OpenCode**: Add to `opencode.json`: `{"instructions": ["~/.opencode/skills/starhtml/starhtml/SKILL.md"]}`
-- **Cursor**: Create `.cursor/rules/starhtml.mdc` with SKILL.md content
-- **Other agents**: Load `starhtml/SKILL.md` + `starhtml/reference/*.md` as context
+This will:
+1. Download this repository
+2. Find `skills/starhtml/SKILL.md` (where `name: starhtml`)
+3. Install to `~/.agents/skills/starhtml/` (or project-level `.agents/skills/`)
 
-### Step 2 — Install the Checker
+### Manual Installation (alternative)
+
+If you prefer manual installation:
 
 ```bash
-# Option A: pip install
-pip install git+https://github.com/renatocaliari/starhtml-skill.git
+# Clone to skills directory
+git clone https://github.com/renatocaliari/starhtml-skill.git ~/.agents/skills/starhtml-temp
 
-# Option B: single file (zero dependencies)
+# Move the skill to correct location (name must match directory)
+mv ~/.agents/skills/starhtml-temp/skills/starhtml ~/.agents/skills/starhtml
+rm -rf ~/.agents/skills/starhtml-temp
+```
+
+Then load the skill based on your agent:
+- **Claude Code**: Already loads from `~/.claude/skills/` or `.claude/skills/`
+- **OpenCode**: Add to `opencode.json`: `{"instructions": ["~/.opencode/skills/starhtml/SKILL.md"]}`
+- **Cursor**: Create `.cursor/rules/starhtml.mdc` with SKILL.md content
+- **Other agents**: Load `~/.agents/skills/starhtml/SKILL.md` + `reference/*.md` as context
+
+---
+
+## 🔧 Install the Checker
+
+**Option A — Global install (recommended):**
+```bash
+# macOS / Linux - system-wide (may require sudo)
+curl -L https://raw.githubusercontent.com/renatocaliari/starhtml-skill/main/starhtml_check.py -o /usr/local/bin/starhtml_check && chmod +x /usr/local/bin/starhtml_check
+
+# Or user-local (no sudo required)
+curl -L https://raw.githubusercontent.com/renatocaliari/starhtml-skill/main/starhtml_check.py -o ~/.local/bin/starhtml_check && chmod +x ~/.local/bin/starhtml_check
+```
+
+**Option B — pip install:**
+```bash
+pip install git+https://github.com/renatocaliari/starhtml-skill.git
+```
+
+**Option C — Local download (per-project):**
+```bash
 curl -O https://raw.githubusercontent.com/renatocaliari/starhtml-skill/main/starhtml_check.py
 ```
 
-### Step 3 — Use in Development Loop
+---
 
-After generating any StarHTML component:
+## 📋 Usage
 
 ```bash
-python starhtml_check.py component.py      # full analysis
-python starhtml_check.py --summary f.py    # compact output (fewer tokens)
-python starhtml_check.py --fix f.py        # auto-fix safe issues
+# If installed globally:
+starhtml_check component.py           # full analysis
+starhtml_check --summary f.py         # compact output
+starhtml_check --fix f.py             # auto-fix safe issues
+starhtml_check --help-llm             # full guide + all error codes
+
+# If downloaded locally:
+python starhtml_check.py component.py
+python starhtml_check.py --summary f.py
+python starhtml_check.py --fix f.py
 ```
 
 **Loop:** write → check → fix ERRORs → re-run → ✓ no issues
 
 ---
 
-## What's Included
+## 📦 Repository Structure
 
 ```
 starhtml-skill/
 ├── starhtml_check.py        # static analyzer CLI (zero dependencies)
-└── starhtml/                # agent skill
-    ├── SKILL.md             # core skill — load this first
-    └── reference/           # sub-references (load on demand)
-        ├── demos.md         # index of 30 official demo files
-        ├── icons.md         # Icon() component reference
-        ├── js.md            # js(), f(), value(), regex() reference
-        ├── handlers.md      # plugins: persist, scroll, motion, drag, canvas...
-        └── slots.md         # slot system reference
+├── pyproject.toml           # for pip install
+├── skills/                  # skills directory (for npx skills add)
+│   └── starhtml/
+│       ├── SKILL.md         # core skill — load this first
+│       └── reference/       # sub-references (load on demand)
+│           ├── demos.md     # index of 30 official demo files
+│           ├── icons.md     # Icon() component reference
+│           ├── js.md        # js(), f(), value(), regex() reference
+│           ├── handlers.md  # plugins: persist, scroll, motion, drag, canvas...
+│           └── slots.md     # slot system reference
+└── README.md                # this file
 ```
 
 ---
 
-## Quick Reference
+## ⚡ Quick Reference
 
 ### StarHTML Basics
 
@@ -113,7 +147,7 @@ theme.one_of("light", "dark")  # enum guard
 
 ---
 
-## Error Codes Reference
+## 📝 Error Codes Reference
 
 ### Errors (must fix)
 
@@ -151,7 +185,7 @@ theme.one_of("light", "dark")  # enum guard
 
 ---
 
-## Contributing
+## 🤝 Contributing
 
 Issues and PRs welcome.
 
@@ -164,6 +198,6 @@ For skill improvements, test with at least one LLM agent before submitting.
 
 ---
 
-## License
+## 📄 License
 
 MIT License — see [LICENSE](LICENSE) for details.
