@@ -1,6 +1,6 @@
-# starhtml-llm
+# starhtml-skill
 
-Skill for AI coding agents + static analyzer CLI for developing with [StarHTML](https://github.com/banditburai/starHTML).
+> **Skill for AI coding agents** + static analyzer CLI for developing with [StarHTML](https://github.com/banditburai/starHTML).
 
 StarHTML is a Python-first framework for building reactive web applications using Datastar.
 This repo helps AI agents (Claude Code, OpenCode, Cursor, etc.) write correct StarHTML code
@@ -8,131 +8,146 @@ and catch framework-specific bugs before runtime.
 
 ---
 
-## What's included
+## 🤖 For AI Agents
 
-    starhtml-llm/
-    ├── starhtml_check.py        static analyzer CLI (zero dependencies)
-    └── starhtml/                agent skill
-        ├── SKILL.md             core skill — loaded by agents automatically
-        └── reference/           sub-references loaded on demand
-            ├── demos.md         index of 30 official demo files with descriptions
-            ├── icons.md         Icon() component reference
-            ├── js.md            js(), f(), value(), regex() reference
-            ├── handlers.md      built-in handlers reference
-            └── slots.md         slot system reference
+If you are an AI agent reading this repo:
 
----
+### Step 1 — Install the Skill
 
-## Install the skill
+Clone this repo to your skills directory and load `starhtml/SKILL.md`:
 
-> **Note on paths:** `~/.agents/skills/` is an emerging cross-agent convention.
-> Individual agents also support their own paths. Use whichever matches your setup.
+```bash
+# Personal skill (all projects)
+git clone https://github.com/renatocaliari/starhtml-skill.git ~/.agents/skills/starhtml
 
-**Option A — Personal skill (all your projects)**
+# Or project skill (shared with team)
+git clone https://github.com/renatocaliari/starhtml-skill.git .agents/skills/starhtml
+```
 
-    git clone https://github.com/renatocaliari/starhtml-llm.git \
-      ~/.agents/skills/starhtml
+Then load the skill:
+- **Claude Code**: Already loads from `~/.claude/skills/` or `.claude/skills/`
+- **OpenCode**: Add to `opencode.json`: `{"instructions": ["~/.opencode/skills/starhtml/starhtml/SKILL.md"]}`
+- **Cursor**: Create `.cursor/rules/starhtml.mdc` with SKILL.md content
+- **Other agents**: Load `starhtml/SKILL.md` + `starhtml/reference/*.md` as context
 
-**Option B — Project skill (shared with team)**
+### Step 2 — Install the Checker
 
-    git clone https://github.com/renatocaliari/starhtml-llm.git \
-      .agents/skills/starhtml
+```bash
+# Option A: pip install
+pip install git+https://github.com/renatocaliari/starhtml-skill.git
 
-**Option C — OpenCode (personal)**
+# Option B: single file (zero dependencies)
+curl -O https://raw.githubusercontent.com/renatocaliari/starhtml-skill/main/starhtml_check.py
+```
 
-    git clone https://github.com/renatocaliari/starhtml-llm.git \
-      ~/.opencode/skills/starhtml
+### Step 3 — Use in Development Loop
 
-Then add to your `opencode.json`:
+After generating any StarHTML component:
 
-    {
-      "instructions": ["~/.opencode/skills/starhtml/starhtml/SKILL.md"]
-    }
+```bash
+python starhtml_check.py component.py      # full analysis
+python starhtml_check.py --summary f.py    # compact output (fewer tokens)
+python starhtml_check.py --fix f.py        # auto-fix safe issues
+```
 
-**Option D — Claude Code (personal)**
-
-    git clone https://github.com/renatocaliari/starhtml-llm.git \
-      ~/.claude/skills/starhtml
-
-**Option E — Manual (any agent)**
-
-Copy `starhtml/SKILL.md` and `starhtml/reference/` into either:
-- `~/.agents/skills/starhtml/` (personal — all projects)
-- `.agents/skills/starhtml/` (project — shared with team)
-
-Then configure your agent to load skills from that path.
-
-**Update to latest version**
-
-    cd ~/.agents/skills/starhtml   # or wherever you installed
-    git pull
+**Loop:** write → check → fix ERRORs → re-run → ✓ no issues
 
 ---
 
-## Install the checker
+## What's Included
 
-**Option A — pip install**
-
-    pip install git+https://github.com/renatocaliari/starhtml-llm.git
-
-**Option B — single file (zero dependencies)**
-
-    # Get the file
-    curl -O https://raw.githubusercontent.com/renatocaliari/starhtml-llm/main/starhtml_check.py
-
-    # Or clone the whole repo
-    git clone https://github.com/renatocaliari/starhtml-llm.git
-    cd starhtml-llm
-
-**Run after every component:**
-
-    python starhtml_check.py component.py      # full analysis
-    python starhtml_check.py --summary f.py    # compact output (fewer tokens for LLMs)
-    python starhtml_check.py --fix f.py        # auto-fix safe issues, print result
-    python starhtml_check.py --code "Div(...)" # analyze inline snippet
-    python starhtml_check.py --help-llm        # full LLM integration guide
-
-**LLM loop:**
-
-    write component → starhtml_check.py file.py → fix ERRORs → re-run → ✓ no issues → done
+```
+starhtml-skill/
+├── starhtml_check.py        # static analyzer CLI (zero dependencies)
+└── starhtml/                # agent skill
+    ├── SKILL.md             # core skill — load this first
+    └── reference/           # sub-references (load on demand)
+        ├── demos.md         # index of 30 official demo files
+        ├── icons.md         # Icon() component reference
+        ├── js.md            # js(), f(), value(), regex() reference
+        ├── handlers.md      # plugins: persist, scroll, motion, drag, canvas...
+        └── slots.md         # slot system reference
+```
 
 ---
 
-## Error codes reference
+## Quick Reference
+
+### StarHTML Basics
+
+```python
+from starhtml import *
+
+# Define reactive state (walrus := in outer parens)
+(counter := Signal("counter", 0))
+(name    := Signal("name", ""))
+(visible := Signal("visible", True))
+
+# Reactive attributes
+data_show=visible              # show/hide
+data_text=name                 # display value
+data_bind=name                 # two-way binding
+data_class_active=visible      # toggle class
+
+# Events
+data_on_click=counter.add(1)
+data_on_input=(search, {"debounce": 300})
+data_on_submit=(post("/api/save"), {"prevent": True})
+
+# Signal operations
+counter.add(1)                 # increment
+counter.set(0)                 # assign
+visible.toggle()               # boolean flip
+name.upper()                   # string method
+count.default(0)               # nullish fallback
+theme.one_of("light", "dark")  # enum guard
+```
+
+### The 5 Rules
+
+1. **No f-strings in reactive attrs** → use `+` or `f()` helper
+2. **data_show needs flash prevention** → `style="display:none"`
+3. **Positional args BEFORE keywords** → `Div("Hello", cls="container")`
+4. **Signal names must be snake_case** → `my_count`, not `myCount`
+5. **Walrus `:=` in outer parens** → `(name := Signal("name", ""))`
+
+---
+
+## Error Codes Reference
 
 ### Errors (must fix)
 
 | Code | Issue |
 |------|-------|
-| E001 | Positional arg after keyword — caught by Python parser |
-| E002 | f-string in reactive attribute — static, won't update in browser |
-| E003 | f-string URL in HTTP action — Python-static, signal value not reactive |
-| E004 | Special chars (`:` `/` `[` `]`) in `data_class_*` keyword name — Python parse error |
+| E001 | Positional arg after keyword — Python SyntaxError |
+| E002 | f-string in reactive attr — static, won't update |
+| E003 | f-string URL in HTTP action — not reactive |
+| E004 | Special chars in `data_class_*` — parse error |
 | E005 | camelCase Signal name — must be snake_case |
-| E006 | `f()` reactive helper used without import — NameError at runtime |
-| E007 | `data_attr_class` and `data_attr_cls` on same element — different behaviors, likely confusion |
+| E006 | `f()` helper without import — NameError |
+| E007 | `data_attr_class` + `data_attr_cls` — confusion |
 
 ### Warnings (should fix)
 
 | Code | Issue |
 |------|-------|
-| W001 | `data_show` without flash prevention — element flashes visible before JS loads |
-| W002 | Form submit fires `post()` without `is_valid` guard — submits invalid data |
-| W003 | Walrus `:=` Signal without outer parentheses — won't register as positional arg |
-| W004 | `data_on_scroll` without throttle or `data_on_input` without debounce — performance issue |
-| W005 | `@sse` endpoint without `yield signals()` reset — client state not cleaned up |
-| W006 | `Icon()` without explicit size — inherits 1em from font-size |
-| W007 | `js()` raw JavaScript — verify no user-controlled input in expression |
-| W008 | Signal name too short — prefer descriptive snake_case names |
+| W001 | `data_show` without flash prevention |
+| W002 | Form submit without `is_valid` guard |
+| W003 | Walrus `:=` without outer parens |
+| W004 | Scroll/input without throttle/debounce |
+| W005 | `@sse` without `yield signals()` reset |
+| W006 | `Icon()` without explicit size |
+| W007 | `js()` raw — verify no user input |
+| W008 | Signal name too short |
 
 ### Info (informational)
 
 | Code | Issue |
 |------|-------|
-| I001 | Computed Signal detected (expression as initial value, auto-updates) |
-| I002 | `elements()` replace-mode — ensure returned element preserves `id` for future targeting |
-| I003 | `delete()` HTTP action — ensure user confirmation UX exists |
-| I004 | `_ref_only=True` Signal — correctly excluded from `data-signals` HTML output |
+| I001 | Computed Signal (auto-updates) |
+| I002 | `elements()` replace-mode — check id |
+| I003 | `delete()` — ensure confirmation UX |
+| I004 | `_ref_only=True` — excluded from HTML |
 
 ---
 
@@ -146,3 +161,9 @@ For new checker rules, include:
 - `FIX:` example of corrected code
 
 For skill improvements, test with at least one LLM agent before submitting.
+
+---
+
+## License
+
+MIT License — see [LICENSE](LICENSE) for details.
