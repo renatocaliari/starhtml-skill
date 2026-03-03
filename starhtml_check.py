@@ -484,18 +484,6 @@ def check_regex(source: str, issues: list[Issue], lines: list[str]) -> None:
                     fix="Add guard: is_valid.then(post(\"/api/save\"))"
                 ))
 
-    # W005: @sse without yield signals (line-level reminder)
-    for i, line in enumerate(lines, 1):
-        if re.match(r"\s*@sse\b", line):
-            issues.append(Issue(
-                level="WARNING",
-                line=i,
-                code="W005",
-                message="`@sse` endpoint — remember to add `yield signals()` reset at end",
-                original=line.strip(),
-                fix="Add at end of function: yield signals(is_sending=False, message=\"\")"
-            ))
-
     # W008: Signal name too short
     short_signal_pattern = re.compile(r'Signal\s*\(\s*["\']([a-z_]{1,2})["\']')
     for i, line in enumerate(lines, 1):
