@@ -53,7 +53,7 @@ Co-authored-by: Qwen-Coder <qwen-coder@alibabacloud.com>"
 
 **5. Framework-Specific Intelligence**
 - Catches StarHTML-specific bugs (reactivity, signal naming, f-string traps)
-- Locality of Behavior checks (W028, W030) — LSP can't detect these
+- Locality of Behavior checks (W028, W030) — generic linters (pylint, flake8) miss these
 - HTTP action validation, plugin registration, SSE handler resets
 - Designed for the way StarHTML actually works, not generic Python linting
 
