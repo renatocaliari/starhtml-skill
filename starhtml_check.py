@@ -111,6 +111,16 @@ HELP_LLM = textwrap.dedent("""
       GOT:  data_text=count  # count was never defined
       FIX:  Define signal: (count := Signal("count", 0))
 
+    - **W017** — Computed Signal detected (expression as initial value, auto-updates)
+      GOT:  (doubled := Signal("doubled", count * 2))
+
+    - **W018** — `_ref_only=True` Signal — correctly excluded from `data-signals`
+
+    - **W019** — f-string in `elements()` selector — verify selector is static
+      GOT:  elements(content, f"#todo-{id}")
+
+    - **W020** — `elements()` replace-mode — ensure element preserves `id`
+
     ## ERROR CODES (BUGS — broken code, do not ship)
 
     - **E001** — positional arg after keyword → caught by Python parser
@@ -168,13 +178,6 @@ HELP_LLM = textwrap.dedent("""
     - **E014** — `js()` raw JavaScript → potential security risk
       GOT:  js("doSomething(" + user_input + ")")
       FIX:  (item := Signal("item", user_input)); js("doSomething($item)")
-
-    ## INFO CODES (awareness only)
-
-    - **I001** — Computed Signal detected (expression as initial value, auto-updates)
-    - **I002** — `elements()` replace-mode — ensure element preserves `id` for targeting
-    - **I004** — `_ref_only=True` Signal — correctly excluded from `data-signals`
-    - **I005** — f-string in `elements()` selector — verify selector is static
 
     ## STARHTML RULES (5 non-negotiable)
 
@@ -413,26 +416,26 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                 fix="Use signal references: (item := Signal('item', val)); js('doSomething($item)')"
             ))
 
-        # I001: Computed Signal
+        # I001: Computed Signal (INFO → W017)
         if func_name == "Signal":
             if len(node.args) >= 2:
                 second_arg = node.args[1]
                 is_literal = isinstance(second_arg, (ast.Constant, ast.List, ast.Dict, ast.Set, ast.Tuple))
                 if not is_literal:
                     self.issues.append(Issue(
-                        level="INFO",
+                        level="WARNING",
                         line=node.lineno,
-                        code="I001",
+                        code="W017",
                         message="Computed Signal detected (expression as initial value, auto-updates)",
                         original=self._get_line(node.lineno)
                     ))
-            # I004: _ref_only=True
+            # I004: _ref_only=True (INFO → W018)
             for kw in node.keywords:
                 if kw.arg == "_ref_only" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
                     self.issues.append(Issue(
-                        level="INFO",
+                        level="WARNING",
                         line=node.lineno,
-                        code="I004",
+                        code="W018",
                         message="`_ref_only=True` Signal — correctly excluded from `data-signals` HTML output",
                         original=self._get_line(node.lineno)
                     ))
@@ -447,13 +450,13 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                 original=self._get_line(node.lineno)
             ))
 
-        # W009: f-string in elements() selector
+        # W009: f-string in elements() selector (INFO → W019)
         if func_name == "elements":
             if len(node.args) >= 2 and isinstance(node.args[1], ast.JoinedStr):
                 self.issues.append(Issue(
-                    level="INFO",
+                    level="WARNING",
                     line=node.lineno,
-                    code="I005",
+                    code="W019",
                     message="f-string in elements() selector — verify selector is static or use signal concatenation",
                     original=self._get_line(node.lineno),
                     fix='If dynamic: elements(content, "#target-" + id_sig)\nIf static: elements(content, "#todo-123")  # OK'
@@ -628,7 +631,7 @@ def check_regex(source: str, issues: list[Issue], lines: list[str]) -> None:
                     fix='Use descriptive name: Signal("counter", 0) instead of Signal("x", 0)'
                 ))
 
-    # I002: elements() replace-mode (check full source for append/prepend)
+    # W020: elements() replace-mode (INFO → WARNING)
     # Use AST-aware check by looking at the actual function call context
     for i, line in enumerate(lines, 1):
         if "elements(" in line:
@@ -637,9 +640,9 @@ def check_regex(source: str, issues: list[Issue], lines: list[str]) -> None:
             has_append_prepend = any(x in context_lines for x in ["\"append\"", "\"prepend\"", "'append'", "'prepend'"])
             if not has_append_prepend:
                 issues.append(Issue(
-                    level="INFO",
+                    level="WARNING",
                     line=i,
-                    code="I002",
+                    code="W020",
                     message="`elements()` replace-mode — ensure returned element preserves `id` for future targeting",
                     original=line.strip()
                 ))
