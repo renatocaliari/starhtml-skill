@@ -22,6 +22,23 @@ from typing import Literal, Optional
 HELP_LLM = textwrap.dedent("""
     # StarHTML Checker — LLM Integration Guide
 
+    ## SEVERITY LEVELS (how to prioritize)
+
+    ### 🔴 ERROR (must fix first)
+    - **Will break**: SyntaxError, NameError at runtime
+    - **Won't work**: Reactivity broken, signals not registered
+    - **Action**: Fix ALL errors before proceeding
+
+    ### 🟡 WARNING (should fix)
+    - **Works but...**: UX issues, subtle bugs, performance
+    - **Can defer**: May be intentional (document why)
+    - **Action**: Fix after errors, review each case
+
+    ### 🔵 INFO (awareness)
+    - **Working fine**: Just informational, may be intentional
+    - **Review only**: Ensure it's expected behavior
+    - **Action**: Acknowledge, no fix needed unless unexpected
+
     ## COMMANDS
 
         python starhtml_check.py <file.py>      # full analysis
@@ -76,6 +93,11 @@ HELP_LLM = textwrap.dedent("""
       GOT:  Div(data_attr_class=..., data_attr_cls=...)
       FIX:  Use only one (data_attr_class replaces, data_attr_cls adds)
 
+    - **E008** — walrus `:=` Signal without outer parentheses → won't register as positional arg, breaks reactivity
+      GOT:  name := Signal("name", "")
+      FIX:  (name := Signal("name", ""))
+      NOTE: Without parens, Signal is not passed to parent element!
+
     ## WARNING CODES (should fix)
 
     - **W001** — `data_show` without flash prevention → element flashes visible before JS loads
@@ -85,10 +107,6 @@ HELP_LLM = textwrap.dedent("""
     - **W002** — form submit fires `post()` without `is_valid` guard → submits invalid data
       GOT:  data_on_submit=(post("/api/save"), {"prevent": True})
       FIX:  data_on_submit=(is_valid.then(post("/api/save")), {"prevent": True})
-
-    - **W003** — walrus `:=` Signal without outer parentheses → won't register as positional arg
-      GOT:  name := Signal("name", "")
-      FIX:  (name := Signal("name", ""))
 
     - **W004** — `data_on_scroll` without throttle or `data_on_input` without debounce → performance
       GOT:  data_on_scroll=handler
@@ -507,15 +525,15 @@ def check_regex(source: str, issues: list[Issue], lines: list[str]) -> None:
                 fix='Signal("counter", 0) instead of Signal("", 0)'
             ))
 
-    # W003: walrus := without outer parens
+    # E008: walrus := without outer parens (BREAKS reactivity - Signal not passed)
     for i, line in enumerate(lines, 1):
         stripped = line.lstrip()
         if ":= Signal(" in line and not stripped.startswith("("):
             issues.append(Issue(
-                level="WARNING",
+                level="ERROR",
                 line=i,
-                code="W003",
-                message="walrus `:=` Signal without outer parentheses — won't register as positional arg",
+                code="E008",
+                message="walrus `:=` Signal without outer parentheses — won't register as positional arg, breaks reactivity",
                 original=line.strip(),
                 fix="Wrap in parens: (name := Signal(\"name\", \"\"))"
             ))
