@@ -22,22 +22,22 @@ from typing import Literal, Optional
 HELP_LLM = textwrap.dedent("""
     # StarHTML Checker — LLM Integration Guide
 
-    ## SEVERITY LEVELS (how to prioritize)
+    ## SEVERITY LEVELS (production-ready mindset)
 
-    ### 🔴 ERROR (must fix first)
-    - **Will break**: SyntaxError, NameError at runtime
-    - **Won't work**: Reactivity broken, signals not registered
-    - **Action**: Fix ALL errors before proceeding
+    ### 🔴 ERROR (BLOCKER — do not ship)
+    - **Broken code**: SyntaxError, NameError, reactivity broken
+    - **Bugs**: UX issues, security risks, performance problems
+    - **Action**: Fix ALL before deploying — production must be reliable
 
-    ### 🟡 WARNING (should fix)
-    - **Works but...**: UX issues, subtle bugs, performance
-    - **Can defer**: May be intentional (document why)
-    - **Action**: Fix after errors, review each case
+    ### 🟡 WARNING (REVIEW — may be intentional)
+    - **Code quality**: Style, conventions, naming
+    - **Potential issues**: Review to ensure it's intentional
+    - **Action**: Review each case, document if keeping intentionally
 
-    ### 🔵 INFO (awareness)
-    - **Working fine**: Just informational, may be intentional
-    - **Review only**: Ensure it's expected behavior
-    - **Action**: Acknowledge, no fix needed unless unexpected
+    ### ℹ️ INFO (AWARENESS — no action needed)
+    - **Informational**: Just notifying about patterns
+    - **Usually fine**: No fix needed unless unexpected
+    - **Action**: Acknowledge and proceed
 
     ## COMMANDS
 
@@ -98,31 +98,7 @@ HELP_LLM = textwrap.dedent("""
       FIX:  (name := Signal("name", ""))
       NOTE: Without parens, Signal is not passed to parent element!
 
-    ## WARNING CODES (should fix)
-
-    - **W001** — `data_show` without flash prevention → element flashes visible before JS loads
-      GOT:  Div("content", data_show=is_open)
-      FIX:  Div("content", style="display:none", data_show=is_open)
-
-    - **W002** — form submit fires `post()` without `is_valid` guard → submits invalid data
-      GOT:  data_on_submit=(post("/api/save"), {"prevent": True})
-      FIX:  data_on_submit=(is_valid.then(post("/api/save")), {"prevent": True})
-
-    - **W004** — `data_on_scroll` without throttle or `data_on_input` without debounce → performance
-      GOT:  data_on_scroll=handler
-      FIX:  data_on_scroll=(handler, {"throttle": 16})
-
-    - **W005** — `@sse` endpoint without `yield signals()` reset → client state not cleaned up
-      GOT:  @sse def fn(): yield elements(...)
-      FIX:  @sse def fn(): yield elements(...); yield signals(...)
-
-    - **W006** — `Icon()` without explicit size → inherits 1em from font-size
-      GOT:  Icon("lucide:home")
-      FIX:  Icon("lucide:home", size=24)
-
-    - **W007** — `js()` raw JavaScript → verify no user-controlled input in expression
-      GOT:  js("doSomething(" + user_input + ")")
-      FIX:  (item := Signal("item", user_input)); js("doSomething($item)")
+    ## WARNING CODES (review — code quality/conventions)
 
     - **W008** — Signal name too short → prefer descriptive snake_case names
       GOT:  Signal("x", 0)
@@ -132,11 +108,40 @@ HELP_LLM = textwrap.dedent("""
       GOT:  Signal("", 0)
       FIX:  Signal("counter", 0)
 
+    - **W015** — `delete()` HTTP action without confirmation → accidental data loss risk
+      GOT:  data_on_click=delete("/api/item", id=123)
+      FIX:  Add confirmation: data_on_click=confirm("Delete?").then(delete(...))
+
+    ## ERROR CODES (BUGS — do not ship)
+
+    - **E009** — `data_show` without flash prevention → element flashes visible before JS loads
+      GOT:  Div("content", data_show=is_open)
+      FIX:  Div("content", style="display:none", data_show=is_open)
+
+    - **E010** — form submit fires `post()` without `is_valid` guard → submits invalid data
+      GOT:  data_on_submit=(post("/api/save"), {"prevent": True})
+      FIX:  data_on_submit=(is_valid.then(post("/api/save")), {"prevent": True})
+
+    - **E011** — `data_on_scroll` without throttle or `data_on_input` without debounce → performance bug
+      GOT:  data_on_scroll=handler
+      FIX:  data_on_scroll=(handler, {"throttle": 16})
+
+    - **E012** — `@sse` endpoint without `yield signals()` reset → client state not cleaned up
+      GOT:  @sse def fn(): yield elements(...)
+      FIX:  @sse def fn(): yield elements(...); yield signals(...)
+
+    - **E013** — `Icon()` without explicit size → inherits 1em from font-size (layout issue)
+      GOT:  Icon("lucide:home")
+      FIX:  Icon("lucide:home", size=24)
+
+    - **E014** — `js()` raw JavaScript → potential security risk with user input
+      GOT:  js("doSomething(" + user_input + ")")
+      FIX:  (item := Signal("item", user_input)); js("doSomething($item)")
+
     ## INFO CODES (informational)
 
     - **I001** — Computed Signal detected (expression as initial value, auto-updates)
     - **I002** — `elements()` replace-mode → ensure returned element preserves `id` for future targeting
-    - **I003** — `delete()` HTTP action → ensure user confirmation UX exists
     - **I004** — `_ref_only=True` Signal → correctly excluded from `data-signals` HTML output
     - **I005** — f-string in `elements()` selector — verify selector is static or use signal concatenation
 
@@ -288,7 +293,7 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                 fix="Use only one: data_attr_class replaces, data_attr_cls adds to base cls="
             ))
 
-        # W001: data_show without flash prevention
+        # E009: data_show without flash prevention (UX bug)
         has_data_show = any(kw.arg == "data_show" for kw in node.keywords)
         if has_data_show:
             has_flash_prevention = False
@@ -311,24 +316,24 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                 is_input_like = func_name in {"Input", "Form", "Select", "Textarea", "Script"}
                 if not is_input_like:
                     self.issues.append(Issue(
-                        level="WARNING",
+                        level="ERROR",
                         line=node.lineno,
-                        code="W001",
+                        code="E009",
                         message="`data_show` without flash prevention — element flashes visible before JS loads",
                         original=self._get_line(node.lineno),
                         fix='Add style="display:none": Div("content", style="display:none", data_show=is_open)'
                     ))
 
-        # W004: data_on_scroll without throttle or data_on_input without debounce
+        # E011: data_on_scroll without throttle or data_on_input without debounce (performance bug)
         for kw in node.keywords:
             if kw.arg == "data_on_scroll":
                 has_throttle = self._has_modifier(kw.value, "throttle")
                 if not has_throttle:
                     self.issues.append(Issue(
-                        level="WARNING",
+                        level="ERROR",
                         line=kw.lineno,
-                        code="W004",
-                        message="`data_on_scroll` without throttle — performance issue",
+                        code="E011",
+                        message="`data_on_scroll` without throttle — performance bug",
                         original=self._get_line(kw.lineno),
                         fix='Add throttle: data_on_scroll=(handler, {"throttle": 16})'
                     ))
@@ -336,15 +341,15 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                 has_debounce = self._has_modifier(kw.value, "debounce")
                 if not has_debounce:
                     self.issues.append(Issue(
-                        level="WARNING",
+                        level="ERROR",
                         line=kw.lineno,
-                        code="W004",
-                        message="`data_on_input` without debounce — performance issue",
+                        code="E011",
+                        message="`data_on_input` without debounce — performance bug",
                         original=self._get_line(kw.lineno),
                         fix='Add debounce: data_on_input=(handler, {"debounce": 300})'
                     ))
 
-        # W006: Icon() without explicit size
+        # E013: Icon() without explicit size (layout bug)
         if func_name == "Icon":
             has_size = False
             for kw in node.keywords:
@@ -356,21 +361,21 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                         has_size = True
             if not has_size:
                 self.issues.append(Issue(
-                    level="WARNING",
+                    level="ERROR",
                     line=node.lineno,
-                    code="W006",
-                    message="`Icon()` without explicit size — inherits 1em from font-size",
+                    code="E013",
+                    message="`Icon()` without explicit size — inherits 1em from font-size (layout issue)",
                     original=self._get_line(node.lineno),
                     fix='Add size: Icon("lucide:home", size=24)'
                 ))
 
-        # W007: js() raw JavaScript
+        # E014: js() raw JavaScript (security risk)
         if func_name == "js":
             self.issues.append(Issue(
-                level="WARNING",
+                level="ERROR",
                 line=node.lineno,
-                code="W007",
-                message="`js()` raw JavaScript — verify no user-controlled input in expression",
+                code="E014",
+                message="`js()` raw JavaScript — potential security risk with user input",
                 original=self._get_line(node.lineno),
                 fix="Use signal references: (item := Signal('item', val)); js('doSomething($item)')"
             ))
@@ -399,12 +404,12 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                         original=self._get_line(node.lineno)
                     ))
 
-        # I003: delete() HTTP action
+        # W015: delete() HTTP action without confirmation (UX risk)
         if func_name == "delete":
             self.issues.append(Issue(
-                level="INFO",
+                level="WARNING",
                 line=node.lineno,
-                code="I003",
+                code="W015",
                 message="`delete()` HTTP action — ensure user confirmation UX exists",
                 original=self._get_line(node.lineno)
             ))
@@ -538,15 +543,15 @@ def check_regex(source: str, issues: list[Issue], lines: list[str]) -> None:
                 fix="Wrap in parens: (name := Signal(\"name\", \"\"))"
             ))
 
-    # W002: form submit without is_valid guard
+    # E010: form submit without is_valid guard (functional bug)
     for i, line in enumerate(lines, 1):
         if "data_on_submit" in line and "post(" in line:
             has_guard = any(x in line for x in ["is_valid", ".then(", "if_("])
             if not has_guard:
                 issues.append(Issue(
-                    level="WARNING",
+                    level="ERROR",
                     line=i,
-                    code="W002",
+                    code="E010",
                     message="form submit fires `post()` without `is_valid` guard — submits invalid data",
                     original=line.strip(),
                     fix="Add guard: is_valid.then(post(\"/api/save\"))"
@@ -602,13 +607,13 @@ def check_post(analyzer: StarHTMLAnalyzer, issues: list[Issue]) -> None:
                 fix="Add import: from starhtml.datastar import f"
             ))
 
-    # W005: @sse function without yield signals (function-level with line number)
+    # E012: @sse function without yield signals (state cleanup bug)
     for func_name, lineno in analyzer._sse_functions:
         if func_name not in analyzer._sse_has_yield_signals:
             issues.append(Issue(
-                level="WARNING",
+                level="ERROR",
                 line=lineno,
-                code="W005",
+                code="E012",
                 message=f"`@sse` function `{func_name}` missing `yield signals()` reset — client state not cleaned up",
                 original=f"def {func_name}(): ...",
                 fix="Add at end: yield signals(is_sending=False, message=\"\")"
