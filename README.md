@@ -35,9 +35,7 @@ This project follows the **Bash + Code philosophy**: agents already know Bash an
 ```bash
 # Chain commands, save to files, integrate anywhere
 starhtml_check component.py --summary > issues.txt
-starhtml_check --fix f.py && git commit -m "fix: $(cat issues.txt)
-
-Co-authored-by: Qwen-Coder <qwen-coder@alibabacloud.com>"
+starhtml_check --fix f.py && git commit -m "fix: $(cat issues.txt)"
 ```
 
 **3. Extensible**
