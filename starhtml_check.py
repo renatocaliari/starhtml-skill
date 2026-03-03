@@ -470,13 +470,20 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
 def check_regex(source: str, issues: list[Issue], lines: list[str]) -> None:
     """Regex-based checks that complement AST analysis."""
 
-    # E005: camelCase Signal name
+    # E005: camelCase Signal name (includes PascalCase and camelCase)
     signal_name_pattern = re.compile(r'Signal\s*\(\s*["\']([a-zA-Z_][a-zA-Z0-9_]*)["\']')
     for i, line in enumerate(lines, 1):
         match = signal_name_pattern.search(line)
         if match:
             name = match.group(1)
-            if re.search(r"[a-z][A-Z]", name):
+            # Detect camelCase (lowerUpper) or PascalCase (UpperUpper like XMLParser)
+            # but allow snake_case (lower_lower) and _underscore_prefix
+            has_camel = bool(re.search(r"[a-z][A-Z]", name))  # lowerUpper
+            is_pascal_case = bool(re.match(r"^[A-Z][a-zA-Z0-9]*$", name))  # PascalCase puro
+            is_snake_case = "_" in name and name.islower()  # snake_case
+            is_underscore_prefix = name.startswith("_") and (name[1:].islower() or "_" in name[1:])
+            
+            if (has_camel or is_pascal_case) and not is_snake_case and not is_underscore_prefix:
                 snake_case = re.sub(r"([a-z])([A-Z])", r"\1_\2", name).lower()
                 issues.append(Issue(
                     level="ERROR",
@@ -545,10 +552,13 @@ def check_regex(source: str, issues: list[Issue], lines: list[str]) -> None:
                     fix='Use descriptive name: Signal("counter", 0) instead of Signal("x", 0)'
                 ))
 
-    # I002: elements() replace-mode
+    # I002: elements() replace-mode (check full source for append/prepend)
+    # Use AST-aware check by looking at the actual function call context
     for i, line in enumerate(lines, 1):
         if "elements(" in line:
-            has_append_prepend = any(x in line for x in ["\"append\"", "\"prepend\"", "'append'", "'prepend'"])
+            # Check if this line or next few lines have append/prepend
+            context_lines = "\n".join(lines[i-1:min(i+3, len(lines))])
+            has_append_prepend = any(x in context_lines for x in ["\"append\"", "\"prepend\"", "'append'", "'prepend'"])
             if not has_append_prepend:
                 issues.append(Issue(
                     level="INFO",
