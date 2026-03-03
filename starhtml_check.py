@@ -110,11 +110,6 @@ HELP_LLM = textwrap.dedent("""
       GOT:  Signal("x", 0)
       FIX:  Signal("counter", 0)
 
-    - **W009** — f-string in `elements()` selector → Python-static, won't react to signal changes
-      GOT:  elements(content, f"#todo-{id}")
-      FIX:  elements(content, "#todo-" + id)  # if id is a signal
-            elements(content, "#todo-123")    # if id is a constant
-
     - **W012** — Signal with empty name → use descriptive snake_case names
       GOT:  Signal("", 0)
       FIX:  Signal("counter", 0)
@@ -125,6 +120,7 @@ HELP_LLM = textwrap.dedent("""
     - **I002** — `elements()` replace-mode → ensure returned element preserves `id` for future targeting
     - **I003** — `delete()` HTTP action → ensure user confirmation UX exists
     - **I004** — `_ref_only=True` Signal → correctly excluded from `data-signals` HTML output
+    - **I005** — f-string in `elements()` selector — verify selector is static or use signal concatenation
 
     ## STARHTML RULES (5 non-negotiable)
 
@@ -399,12 +395,12 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
         if func_name == "elements":
             if len(node.args) >= 2 and isinstance(node.args[1], ast.JoinedStr):
                 self.issues.append(Issue(
-                    level="WARNING",
+                    level="INFO",
                     line=node.lineno,
-                    code="W009",
-                    message="f-string in elements() selector — Python-static, won't react to signal changes",
+                    code="I005",
+                    message="f-string in elements() selector — verify selector is static or use signal concatenation",
                     original=self._get_line(node.lineno),
-                    fix='Use signal parameter: elements(content, "#target-id") or elements(content, target_signal)'
+                    fix='If dynamic: elements(content, "#target-" + id_sig)\nIf static: elements(content, "#todo-123")  # OK'
                 ))
 
         # Track f() usage
