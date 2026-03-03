@@ -8,6 +8,57 @@ and catch framework-specific bugs before runtime.
 
 ---
 
+## 🎯 Why CLI + Skill Instead of MCP or LSP?
+
+This project follows the **[Bash + Code philosophy](https://mariozechner.at/posts/2025-11-02-what-if-you-dont-need-mcp/)**: agents already know Bash and Python—leverage that instead of adding protocol overhead.
+
+| Approach | Token Cost | Composable | Extensible | Agent Knowledge |
+|----------|------------|------------|------------|-----------------|
+| **starhtml-skill (CLI + Skill)** | ~500 tokens (SKILL.md) | ✅ Output to files, chain commands | ✅ Single Python file | ✅ Bash + Python |
+| MCP Server | 13k–18k tokens | ❌ Must pass through agent context | ❌ Full codebase to understand | ❌ MCP-specific protocol |
+| LSP | 5k–10k tokens (config + capabilities) | ❌ Tied to editor/IDE | ❌ Language server protocol | ❌ LSP-specific protocol |
+
+### Advantages of This Approach
+
+**1. Token Efficient**
+- Skill file: ~500 tokens vs. 13k–18k for MCP servers
+- Checker output: concise, structured, designed for LLM loops
+- No protocol overhead—just Python and CLI
+
+**2. Composable**
+```bash
+# Chain commands, save to files, integrate anywhere
+starhtml_check component.py --summary > issues.txt
+starhtml_check --fix f.py && git commit -m "fix: $(cat issues.txt)"
+
+```
+
+**3. Extensible**
+- Single Python file (`starhtml_check.py`) — no dependencies
+- Add new rules in minutes, not hours
+- Agents can read and modify the checker itself
+
+**4. Agent-Agnostic**
+- Works with any coding agent (Claude Code, Cursor, OpenCode, Qwen, etc.)
+- No MCP host required
+- No LSP server configuration
+- Load skill via `npx skills add` or manual install
+
+**5. Framework-Specific Intelligence**
+- Catches StarHTML-specific bugs (reactivity, signal naming, f-string traps)
+- Locality of Behavior checks (W028, W030) — LSP can't detect these
+- HTTP action validation, plugin registration, SSE handler resets
+- Designed for the way StarHTML actually works, not generic Python linting
+
+### When MCP/LSP Might Make Sense
+
+- **MCP**: If you need cross-tool orchestration (e.g., StarHTML + database + deployment in one protocol)
+- **LSP**: If you want IDE-native features (go-to-definition, hover types, real-time diagnostics in VS Code)
+
+For StarHTML development with AI agents, **CLI + Skill** is simpler, faster, and more flexible.
+
+---
+
 ## 🤖 For AI Agents
 
 ### Recommended: Install via `npx skills`
