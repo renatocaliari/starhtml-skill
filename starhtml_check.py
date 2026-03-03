@@ -67,9 +67,11 @@ HELP_LLM = textwrap.dedent("""
       FIX:  data_text="Count: " + counter
             data_text=f("Count: {c}", c=counter)  # for 3+ signals
 
-    - **E003** — f-string URL in HTTP action → Python-static, signal value not reactive
-      GOT:  data_on_click=get(f"/api/{item_id}")
+    - **E003** — f-string URL in HTTP action with Signal variable → static, won't update
+      GOT:  data_on_click=get(f"/api/{item_id}")  # where item_id is a Signal
       FIX:  data_on_click=get("/api/item", id=item_id_sig)
+      NOTE: Does NOT flag if variable is a function parameter (not a Signal)
+            Does NOT flag dict.get() like data.get(f"key_{id}")
 
     - **E004** — special chars (`:` `/` `[` `]`) in `data_class_*` keyword name → Python parse error
       GOT:  data_class_hover:bg-blue=sig
@@ -139,9 +141,10 @@ HELP_LLM = textwrap.dedent("""
       GOT:  data_on_click=then(post("/api/save"))
       FIX:  data_on_click=is_valid.then(post("/api/save"))
 
-    - **W024** — `data_effect` without `.set()` — use `signal.set(expression)` for side effects
+    - **W024** — `data_effect` without `.set()` or `.then()` — use valid patterns
       GOT:  data_effect=price * quantity
-      FIX:  data_effect=total.set(price * quantity)
+      FIX:  data_effect=total.set(price * quantity)   # for assignment
+            data_effect=trigger.then(get("/api"))    # for conditional execution (OK!)
 
     - **W025** — Component function without `**kwargs` — limits pass-through attributes
       GOT:  def Modal(body_content):
@@ -436,14 +439,34 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
         # E003: f-string URL in HTTP action
         if func_name in HTTP_ACTIONS:
             if node.args and isinstance(node.args[0], ast.JoinedStr):
-                self.issues.append(Issue(
-                    level="ERROR",
-                    line=node.lineno,
-                    code="E003",
-                    message="f-string URL in HTTP action — Python-static, signal value not reactive",
-                    original=self._get_line(node.lineno),
-                    fix='Pass signal as parameter: get("/api/item", id=item_id_sig)'
-                ))
+                # Check if this is a method call (e.g., data.get()) vs standalone function
+                # data.get() is a dict method, not HTTP action - FALSE POSITIVE if flagged
+                is_method_call = isinstance(node.func, ast.Attribute)
+                
+                if is_method_call:
+                    # This is like data.get() - a dict method, not HTTP action
+                    # Skip the check - it's a false positive
+                    pass
+                else:
+                    # Standalone HTTP action (get, post, etc.) - check if f-string uses a Signal
+                    # Get the variable names used in the f-string
+                    fstring_var_names = self._extract_fstring_variables(node.args[0])
+                    
+                    # Check if any variable in the f-string is a Signal
+                    uses_signal = any(var_name in self._defined_signals for var_name in fstring_var_names)
+                    
+                    if uses_signal:
+                        # Variable is a Signal - this is a real error
+                        self.issues.append(Issue(
+                            level="ERROR",
+                            line=node.lineno,
+                            code="E003",
+                            message="f-string URL in HTTP action — signal value is static, won't update in browser",
+                            original=self._get_line(node.lineno),
+                            fix='Pass signal as parameter: get("/api/item", id=item_id_sig)'
+                        ))
+                    # else: variable is not a Signal (e.g., todo_id from function parameter)
+                    # This is a false positive - don't report
 
         # E004: special chars in data_class_* keyword name
         for kw in node.keywords:
@@ -756,6 +779,19 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                             return True
         return False
 
+    def _extract_fstring_variables(self, node: ast.JoinedStr) -> list[str]:
+        """Extract variable names from an f-string."""
+        var_names = []
+        for elt in node.values:
+            if isinstance(elt, ast.FormattedValue):
+                if isinstance(elt.value, ast.Name):
+                    var_names.append(elt.value.id)
+                elif isinstance(elt.value, ast.Attribute):
+                    # Handle things like obj.attr
+                    if isinstance(elt.value.value, ast.Name):
+                        var_names.append(elt.value.value.id)
+        return var_names
+
 
 def check_regex(source: str, issues: list[Issue], lines: list[str]) -> None:
     """Regex-based checks that complement AST analysis."""
@@ -1023,15 +1059,32 @@ def check_post(analyzer: StarHTMLAnalyzer, issues: list[Issue]) -> None:
 
     # W024: data_effect without .set() assignment
     for lineno in analyzer._data_effect_usage:
-        line = analyzer._get_line(lineno)
-        # Check if data_effect value has .set() call
-        if ".set(" not in line:
+        # Check the line containing data_effect and the next few lines
+        # (data_effect might span multiple lines)
+        context_lines = []
+        for i in range(lineno, min(lineno + 5, len(analyzer.lines) + 1)):
+            context_lines.append(analyzer._get_line(i))
+        context = "\n".join(context_lines)
+        
+        # Check if data_effect value has .set() call or .then() (valid patterns)
+        # .set() is for assignment: data_effect=total.set(price * quantity)
+        # .then() is for conditional execution: data_effect=signal.then(get(...))
+        # Both are valid patterns - only warn if neither is present
+        has_valid_pattern = ".set(" in context or ".then(" in context
+        
+        if not has_valid_pattern:
+            # Find the exact line with data_effect
+            data_effect_line = lineno
+            for i in range(lineno, min(lineno + 5, len(analyzer.lines) + 1)):
+                if "data_effect" in analyzer._get_line(i):
+                    data_effect_line = i
+                    break
             issues.append(Issue(
                 level="WARNING",
-                line=lineno,
+                line=data_effect_line,
                 code="W024",
                 message="`data_effect` without `.set()` — use `signal.set(expression)` for side effects",
-                original=line.strip(),
+                original=analyzer._get_line(data_effect_line).strip(),
                 fix="Use .set(): data_effect=total.set(price * quantity)"
             ))
 
