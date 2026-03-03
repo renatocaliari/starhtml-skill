@@ -14,17 +14,22 @@ This project follows the **Bash + Code philosophy**: agents already know Bash an
 
 | Approach | Token Cost | Composable | Extensible | Agent Knowledge |
 |----------|------------|------------|------------|-----------------|
-| **starhtml-skill (CLI + Skill)** | ~4.5k tokens | ✅ Output to files, chain commands | ✅ Single Python file | ✅ Bash + Python |
+| **starhtml-skill** | ~5k (core) + ~12k (ref, on-demand) | ✅ Output to files, chain commands | ✅ Single Python file | ✅ Bash + Python |
 | MCP Server | High (protocol + tools) | ❌ Must pass through agent context | ❌ Full codebase to understand | ❌ MCP-specific protocol |
 | LSP | High (config + capabilities) | ❌ Tied to editor/IDE | ❌ Language server protocol | ❌ LSP-specific protocol |
 
 ### Advantages of This Approach
 
 **1. Token Efficient**
-- Skill file: ~4.5k tokens (SKILL.md is 14.7KB) — one-time load
+- Core skill: ~5k tokens (SKILL.md is 14.7KB) — loaded once per session
+- Reference files: ~12k tokens total — loaded contextually when needed
+  - `demos.md` — index of 30 official demo files
+  - `handlers.md` — plugins: persist, scroll, motion, drag, canvas...
+  - `icons.md` — Icon() component reference
+  - `js.md` — js(), f(), value(), regex() reference
+  - `slots.md` — slot system reference
 - Checker output: concise, structured, designed for LLM loops
 - No protocol overhead—just Python and CLI
-- MCP/LSP require additional context for protocol configuration and tool definitions
 
 **2. Composable**
 ```bash
