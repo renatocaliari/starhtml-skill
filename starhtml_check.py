@@ -34,11 +34,6 @@ HELP_LLM = textwrap.dedent("""
     - **Potential issues**: Review to ensure it's intentional
     - **Action**: Review each case, document if keeping intentionally
 
-    ### ℹ️ INFO (AWARENESS — no action needed)
-    - **Informational**: Just notifying about patterns
-    - **Usually fine**: No fix needed unless unexpected
-    - **Action**: Acknowledge and proceed
-
     ## COMMANDS
 
         python starhtml_check.py <file.py>      # full analysis
@@ -98,7 +93,7 @@ HELP_LLM = textwrap.dedent("""
       FIX:  (name := Signal("name", ""))
       NOTE: Without parens, Signal is not passed to parent element!
 
-    ## WARNING CODES (review — code quality/conventions)
+    ## WARNING CODES (review — may be intentional)
 
     - **W008** — Signal name too short → prefer descriptive snake_case names
       GOT:  Signal("x", 0)
@@ -112,17 +107,53 @@ HELP_LLM = textwrap.dedent("""
       GOT:  data_on_click=delete("/api/item", id=123)
       FIX:  Add confirmation: data_on_click=confirm("Delete?").then(delete(...))
 
-    ## ERROR CODES (BUGS — do not ship)
+    - **W016** — Signal used but not defined → will cause runtime error
+      GOT:  data_text=count  # count was never defined
+      FIX:  Define signal: (count := Signal("count", 0))
 
-    - **E009** — `data_show` without flash prevention → element flashes visible before JS loads
+    ## ERROR CODES (BUGS — broken code, do not ship)
+
+    - **E001** — positional arg after keyword → caught by Python parser
+      GOT:  Div(cls="container", "Hello")
+      FIX:  Div("Hello", cls="container")
+
+    - **E002** — f-string in reactive attribute → static, won't update in browser
+      GOT:  data_text=f"Count: {counter}"
+      FIX:  data_text="Count: " + counter
+
+    - **E003** — f-string URL in HTTP action → Python-static, signal value not reactive
+      GOT:  data_on_click=get(f"/api/{item_id}")
+      FIX:  data_on_click=get("/api/item", id=item_id_sig)
+
+    - **E004** — special chars in `data_class_*` keyword → Python parse error
+      GOT:  data_class_hover:bg-blue=sig
+      FIX:  data_attr_class=sig.if_("hover:bg-blue-500", "")
+
+    - **E005** — camelCase Signal name → must be snake_case
+      GOT:  Signal("myCounter", 0)
+      FIX:  Signal("my_counter", 0)
+
+    - **E006** — `f()` helper used without import → NameError at runtime
+      GOT:  (uses f() but no import)
+      FIX:  from starhtml.datastar import f
+
+    - **E007** — `data_attr_class` and `data_attr_cls` on same element → different behaviors
+      GOT:  Div(data_attr_class=..., data_attr_cls=...)
+      FIX:  Use only one
+
+    - **E008** — walrus `:=` Signal without outer parens → breaks reactivity
+      GOT:  count := Signal("count", 0)
+      FIX:  (count := Signal("count", 0))
+
+    - **E009** — `data_show` without flash prevention → element flashes before JS loads
       GOT:  Div("content", data_show=is_open)
       FIX:  Div("content", style="display:none", data_show=is_open)
 
-    - **E010** — form submit fires `post()` without `is_valid` guard → submits invalid data
+    - **E010** — form submit without `is_valid` guard → submits invalid data
       GOT:  data_on_submit=(post("/api/save"), {"prevent": True})
       FIX:  data_on_submit=(is_valid.then(post("/api/save")), {"prevent": True})
 
-    - **E011** — `data_on_scroll` without throttle or `data_on_input` without debounce → performance bug
+    - **E011** — `data_on_scroll`/`data_on_input` without throttle/debounce → performance bug
       GOT:  data_on_scroll=handler
       FIX:  data_on_scroll=(handler, {"throttle": 16})
 
@@ -130,20 +161,20 @@ HELP_LLM = textwrap.dedent("""
       GOT:  @sse def fn(): yield elements(...)
       FIX:  @sse def fn(): yield elements(...); yield signals(...)
 
-    - **E013** — `Icon()` without explicit size → inherits 1em from font-size (layout issue)
+    - **E013** — `Icon()` without explicit size → inherits 1em from font-size
       GOT:  Icon("lucide:home")
       FIX:  Icon("lucide:home", size=24)
 
-    - **E014** — `js()` raw JavaScript → potential security risk with user input
+    - **E014** — `js()` raw JavaScript → potential security risk
       GOT:  js("doSomething(" + user_input + ")")
       FIX:  (item := Signal("item", user_input)); js("doSomething($item)")
 
-    ## INFO CODES (informational)
+    ## INFO CODES (awareness only)
 
     - **I001** — Computed Signal detected (expression as initial value, auto-updates)
-    - **I002** — `elements()` replace-mode → ensure returned element preserves `id` for future targeting
-    - **I004** — `_ref_only=True` Signal → correctly excluded from `data-signals` HTML output
-    - **I005** — f-string in `elements()` selector — verify selector is static or use signal concatenation
+    - **I002** — `elements()` replace-mode — ensure element preserves `id` for targeting
+    - **I004** — `_ref_only=True` Signal — correctly excluded from `data-signals`
+    - **I005** — f-string in `elements()` selector — verify selector is static
 
     ## STARHTML RULES (5 non-negotiable)
 
@@ -197,6 +228,8 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
         self.events: list[str] = []
         self.reactive_attrs: list[str] = []
         self._seen_signals: set[str] = set()
+        self._defined_signals: set[str] = set()  # Signals definidos
+        self._used_signals: dict[int, tuple[str, str]] = {}  # lineno -> (signal_name, attr)
         self._has_f_import = False
         self._uses_f_helper: list[int] = []
         self._sse_functions: list[str] = []
@@ -438,6 +471,24 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                     self._sse_has_yield_signals.add(self._current_func)
                     break
 
+        # Track signals used in reactive attributes (W016: undefined signals)
+        for kw in node.keywords:
+            if kw.arg and kw.arg.startswith("data_"):
+                # Check if value is a signal reference (simple Name node)
+                if isinstance(kw.value, ast.Name):
+                    self._used_signals[kw.lineno] = (kw.value.id, kw.arg)
+                # Check for signal.method() calls like count.add(1)
+                elif isinstance(kw.value, ast.Attribute) and isinstance(kw.value.value, ast.Name):
+                    self._used_signals[kw.lineno] = (kw.value.value.id, kw.arg)
+                # Check for binary operations like count > 10
+                elif isinstance(kw.value, ast.Compare):
+                    if isinstance(kw.value.left, ast.Name):
+                        self._used_signals[kw.lineno] = (kw.value.left.id, kw.arg)
+                # Check for unary operations like ~is_running
+                elif isinstance(kw.value, ast.UnaryOp):
+                    if isinstance(kw.value.operand, ast.Name):
+                        self._used_signals[kw.lineno] = (kw.value.operand.id, kw.arg)
+
         # Collect events and reactive attrs
         for kw in node.keywords:
             if kw.arg:
@@ -456,6 +507,7 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                     if sig_name not in self._seen_signals:
                         self.signals.append(sig_name)
                         self._seen_signals.add(sig_name)
+                        self._defined_signals.add(sig_name)
         self.generic_visit(node)
 
     def visit_Assign(self, node: ast.Assign):
@@ -467,6 +519,7 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                         if sig_name not in self._seen_signals:
                             self.signals.append(sig_name)
                             self._seen_signals.add(sig_name)
+                            self._defined_signals.add(sig_name)
         self.generic_visit(node)
 
     def _get_line(self, lineno: int) -> str:
@@ -617,6 +670,21 @@ def check_post(analyzer: StarHTMLAnalyzer, issues: list[Issue]) -> None:
                 message=f"`@sse` function `{func_name}` missing `yield signals()` reset — client state not cleaned up",
                 original=f"def {func_name}(): ...",
                 fix="Add at end: yield signals(is_sending=False, message=\"\")"
+            ))
+
+    # W016: Signal used but not defined (runtime error)
+    for lineno, (sig_name, attr) in analyzer._used_signals.items():
+        if sig_name not in analyzer._defined_signals:
+            # Skip Python builtins and common names
+            if sig_name in {"True", "False", "None", "print", "len", "str", "int", "float", "list", "dict"}:
+                continue
+            issues.append(Issue(
+                level="WARNING",
+                line=lineno,
+                code="W016",
+                message=f"Signal `{sig_name}` used in `{attr}` but never defined — will cause runtime error",
+                original=analyzer._get_line(lineno),
+                fix=f'Define signal: ({sig_name} := Signal("{sig_name}", 0))'
             ))
 
 
