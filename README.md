@@ -14,23 +14,25 @@ This project follows the **Bash + Code philosophy**: agents already know Bash an
 
 | Approach | Token Cost | Composable | Extensible | Agent Knowledge |
 |----------|------------|------------|------------|-----------------|
-| **starhtml-skill (CLI + Skill)** | ~4.5k tokens (SKILL.md) | ✅ Output to files, chain commands | ✅ Single Python file | ✅ Bash + Python |
-| MCP Server | 13k–18k tokens | ❌ Must pass through agent context | ❌ Full codebase to understand | ❌ MCP-specific protocol |
-| LSP | 5k–10k tokens (config + capabilities) | ❌ Tied to editor/IDE | ❌ Language server protocol | ❌ LSP-specific protocol |
+| **starhtml-skill (CLI + Skill)** | ~4.5k tokens | ✅ Output to files, chain commands | ✅ Single Python file | ✅ Bash + Python |
+| MCP Server | High (protocol + tools) | ❌ Must pass through agent context | ❌ Full codebase to understand | ❌ MCP-specific protocol |
+| LSP | High (config + capabilities) | ❌ Tied to editor/IDE | ❌ Language server protocol | ❌ LSP-specific protocol |
 
 ### Advantages of This Approach
 
 **1. Token Efficient**
-- Skill file: ~4.5k tokens (SKILL.md is 14.7KB) vs. 13k–18k for MCP servers
+- Skill file: ~4.5k tokens (SKILL.md is 14.7KB) — one-time load
 - Checker output: concise, structured, designed for LLM loops
 - No protocol overhead—just Python and CLI
+- MCP/LSP require additional context for protocol configuration and tool definitions
 
 **2. Composable**
 ```bash
 # Chain commands, save to files, integrate anywhere
 starhtml_check component.py --summary > issues.txt
-starhtml_check --fix f.py && git commit -m "fix: $(cat issues.txt)"
+starhtml_check --fix f.py && git commit -m "fix: $(cat issues.txt)
 
+Co-authored-by: Qwen-Coder <qwen-coder@alibabacloud.com>"
 ```
 
 **3. Extensible**
