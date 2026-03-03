@@ -110,6 +110,15 @@ HELP_LLM = textwrap.dedent("""
       GOT:  Signal("x", 0)
       FIX:  Signal("counter", 0)
 
+    - **W009** — f-string in `elements()` selector → Python-static, won't react to signal changes
+      GOT:  elements(content, f"#todo-{id}")
+      FIX:  elements(content, "#todo-" + id)  # if id is a signal
+            elements(content, "#todo-123")    # if id is a constant
+
+    - **W012** — Signal with empty name → use descriptive snake_case names
+      GOT:  Signal("", 0)
+      FIX:  Signal("counter", 0)
+
     ## INFO CODES (informational)
 
     - **I001** — Computed Signal detected (expression as initial value, auto-updates)
@@ -158,7 +167,7 @@ REACTIVE_PREFIXES = ("data_on_", "data_class_", "data_style_", "data_attr_", "da
 
 HTTP_ACTIONS = {"get", "post", "put", "patch", "delete"}
 
-TAILWIND_SIZE_PATTERN = re.compile(r"(size-|w-|h-)\d+")
+TAILWIND_SIZE_PATTERN = re.compile(r"(size-|w-|h-)(\d+|\d+/\d+|full|screen|min|max|px|auto|fit)")
 
 
 class StarHTMLAnalyzer(ast.NodeVisitor):
@@ -185,8 +194,14 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
     def visit_FunctionDef(self, node: ast.FunctionDef):
         self._current_func = node.name
         for decorator in node.decorator_list:
+            is_sse = False
+            # Handle @sse, @app.sse, and aliased imports
             if isinstance(decorator, ast.Name) and decorator.id == "sse":
-                self._sse_functions.append(node.name)
+                is_sse = True
+            elif isinstance(decorator, ast.Attribute) and decorator.attr == "sse":
+                is_sse = True  # Handles @app.sse, @starhtml.sse, etc.
+            if is_sse:
+                self._sse_functions.append((node.name, node.lineno))
         self.generic_visit(node)
         self._current_func = ""
 
@@ -266,6 +281,9 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
             for kw in node.keywords:
                 if kw.arg == "style" and isinstance(kw.value, ast.Constant):
                     if "display" in str(kw.value.value).lower():
+                        has_flash_prevention = True
+                if kw.arg == "data_style_display" and isinstance(kw.value, ast.Constant):
+                    if str(kw.value.value).lower() == "none":
                         has_flash_prevention = True
                 if kw.arg == "cls" and isinstance(kw.value, ast.Constant):
                     if "hidden" in str(kw.value.value).lower():
@@ -377,13 +395,29 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                 original=self._get_line(node.lineno)
             ))
 
+        # W009: f-string in elements() selector
+        if func_name == "elements":
+            if len(node.args) >= 2 and isinstance(node.args[1], ast.JoinedStr):
+                self.issues.append(Issue(
+                    level="WARNING",
+                    line=node.lineno,
+                    code="W009",
+                    message="f-string in elements() selector — Python-static, won't react to signal changes",
+                    original=self._get_line(node.lineno),
+                    fix='Use signal parameter: elements(content, "#target-id") or elements(content, target_signal)'
+                ))
+
         # Track f() usage
         if func_name == "f":
             self._uses_f_helper.append(node.lineno)
 
         # Track SSE yield signals
-        if func_name == "signals" and self._current_func in self._sse_functions:
-            self._sse_has_yield_signals.add(self._current_func)
+        if func_name == "signals" and self._current_func:
+            # Check if current function is an SSE function
+            for sse_name, _ in self._sse_functions:
+                if sse_name == self._current_func:
+                    self._sse_has_yield_signals.add(self._current_func)
+                    break
 
         # Collect events and reactive attrs
         for kw in node.keywords:
@@ -441,7 +475,7 @@ def check_regex(source: str, issues: list[Issue], lines: list[str]) -> None:
     """Regex-based checks that complement AST analysis."""
 
     # E005: camelCase Signal name
-    signal_name_pattern = re.compile(r'Signal\s*\(\s*["\']([a-zA-Z][a-zA-Z0-9]*)["\']')
+    signal_name_pattern = re.compile(r'Signal\s*\(\s*["\']([a-zA-Z_][a-zA-Z0-9_]*)["\']')
     for i, line in enumerate(lines, 1):
         match = signal_name_pattern.search(line)
         if match:
@@ -456,6 +490,19 @@ def check_regex(source: str, issues: list[Issue], lines: list[str]) -> None:
                     original=line.strip(),
                     fix=f'Rename to snake_case: Signal("{snake_case}", ...)'
                 ))
+
+    # W012: Empty Signal name
+    empty_signal_pattern = re.compile(r'Signal\s*\(\s*["\']["\']')
+    for i, line in enumerate(lines, 1):
+        if empty_signal_pattern.search(line):
+            issues.append(Issue(
+                level="WARNING",
+                line=i,
+                code="W012",
+                message="Signal with empty name — use descriptive snake_case names",
+                original=line.strip(),
+                fix='Signal("counter", 0) instead of Signal("", 0)'
+            ))
 
     # W003: walrus := without outer parens
     for i, line in enumerate(lines, 1):
@@ -531,12 +578,12 @@ def check_post(analyzer: StarHTMLAnalyzer, issues: list[Issue]) -> None:
                 fix="Add import: from starhtml.datastar import f"
             ))
 
-    # W005: @sse function without yield signals (function-level)
-    for func_name in analyzer._sse_functions:
+    # W005: @sse function without yield signals (function-level with line number)
+    for func_name, lineno in analyzer._sse_functions:
         if func_name not in analyzer._sse_has_yield_signals:
             issues.append(Issue(
                 level="WARNING",
-                line=0,
+                line=lineno,
                 code="W005",
                 message=f"`@sse` function `{func_name}` missing `yield signals()` reset — client state not cleaned up",
                 original=f"def {func_name}(): ...",
