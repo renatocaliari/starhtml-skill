@@ -10,18 +10,18 @@ and catch framework-specific bugs before runtime.
 
 ## 🎯 Why CLI + Skill Instead of MCP or LSP?
 
-This project follows the **[Bash + Code philosophy](https://mariozechner.at/posts/2025-11-02-what-if-you-dont-need-mcp/)**: agents already know Bash and Python—leverage that instead of adding protocol overhead.
+This project follows the **Bash + Code philosophy**: agents already know Bash and Python—leverage that instead of adding protocol overhead.
 
 | Approach | Token Cost | Composable | Extensible | Agent Knowledge |
 |----------|------------|------------|------------|-----------------|
-| **starhtml-skill (CLI + Skill)** | ~500 tokens (SKILL.md) | ✅ Output to files, chain commands | ✅ Single Python file | ✅ Bash + Python |
+| **starhtml-skill (CLI + Skill)** | ~4.5k tokens (SKILL.md) | ✅ Output to files, chain commands | ✅ Single Python file | ✅ Bash + Python |
 | MCP Server | 13k–18k tokens | ❌ Must pass through agent context | ❌ Full codebase to understand | ❌ MCP-specific protocol |
 | LSP | 5k–10k tokens (config + capabilities) | ❌ Tied to editor/IDE | ❌ Language server protocol | ❌ LSP-specific protocol |
 
 ### Advantages of This Approach
 
 **1. Token Efficient**
-- Skill file: ~500 tokens vs. 13k–18k for MCP servers
+- Skill file: ~4.5k tokens (SKILL.md is 14.7KB) vs. 13k–18k for MCP servers
 - Checker output: concise, structured, designed for LLM loops
 - No protocol overhead—just Python and CLI
 
@@ -49,11 +49,6 @@ starhtml_check --fix f.py && git commit -m "fix: $(cat issues.txt)"
 - Locality of Behavior checks (W028, W030) — LSP can't detect these
 - HTTP action validation, plugin registration, SSE handler resets
 - Designed for the way StarHTML actually works, not generic Python linting
-
-### When MCP/LSP Might Make Sense
-
-- **MCP**: If you need cross-tool orchestration (e.g., StarHTML + database + deployment in one protocol)
-- **LSP**: If you want IDE-native features (go-to-definition, hover types, real-time diagnostics in VS Code)
 
 For StarHTML development with AI agents, **CLI + Skill** is simpler, faster, and more flexible.
 
@@ -200,39 +195,50 @@ theme.one_of("light", "dark")  # enum guard
 
 ## 📝 Error Codes Reference
 
-### Errors (must fix)
+### Errors (must fix — broken code, do not ship)
 
 | Code | Issue |
 |------|-------|
 | E001 | Positional arg after keyword — Python SyntaxError |
-| E002 | f-string in reactive attr — static, won't update |
-| E003 | f-string URL in HTTP action — not reactive |
-| E004 | Special chars in `data_class_*` — parse error |
+| E002 | f-string in reactive attr — static, won't update in browser |
+| E003 | f-string URL in HTTP action — Python-static, not reactive |
+| E004 | Special chars (`:` `/` `[` `]`) in `data_class_*` — parse error |
 | E005 | camelCase Signal name — must be snake_case |
-| E006 | `f()` helper without import — NameError |
-| E007 | `data_attr_class` + `data_attr_cls` — confusion |
+| E006 | `f()` helper used without import — NameError at runtime |
+| E007 | `data_attr_class` and `data_attr_cls` on same element — different behaviors |
+| E008 | Walrus `:=` Signal without outer parentheses — breaks reactivity |
+| E009 | `data_show` without flash prevention — element flashes before JS loads |
+| E010 | Form submit without `is_valid` guard — submits invalid data |
+| E011 | `data_on_scroll`/`data_on_input` without throttle/debounce — performance bug |
+| E012 | `@sse` endpoint without `yield signals()` reset — client state not cleaned |
+| E013 | `Icon()` without explicit size — inherits 1em from font-size |
+| E014 | `js()` raw JavaScript — potential security risk |
+| E015 | Plugin data attribute used without plugin registration |
+| E016 | `data_on_submit` with `post()` without `{"prevent": True}` — page reloads |
 
-### Warnings (should fix)
-
-| Code | Issue |
-|------|-------|
-| W001 | `data_show` without flash prevention |
-| W002 | Form submit without `is_valid` guard |
-| W003 | Walrus `:=` without outer parens |
-| W004 | Scroll/input without throttle/debounce |
-| W005 | `@sse` without `yield signals()` reset |
-| W006 | `Icon()` without explicit size |
-| W007 | `js()` raw — verify no user input |
-| W008 | Signal name too short |
-
-### Info (informational)
+### Warnings (should fix — review, may be intentional)
 
 | Code | Issue |
 |------|-------|
-| I001 | Computed Signal (auto-updates) |
-| I002 | `elements()` replace-mode — check id |
-| I003 | `delete()` — ensure confirmation UX |
-| I004 | `_ref_only=True` — excluded from HTML |
+| W003 | 3+ signals with `&` operator — prefer `all()` for readability |
+| W008 | Signal name too short — prefer descriptive snake_case names |
+| W012 | Signal with empty name — use descriptive snake_case names |
+| W015 | `delete()` HTTP action without confirmation — data loss risk |
+| W016 | Signal used but not defined — will cause runtime error |
+| W017 | Computed Signal detected — auto-updates on dependencies |
+| W018 | `_ref_only=True` Signal — excluded from `data-signals` (correct) |
+| W019 | f-string in `elements()` selector — verify selector is static |
+| W020 | `elements()` replace-mode without explicit `id` — may not be targetable |
+| W021 | `switch()` used for CSS classes — use `collect()` to combine |
+| W022 | `collect()` used for exclusive logic — use `switch()` or `if_()` |
+| W023 | `.then()` without conditional signal — verify boolean signal is used |
+| W024 | `data_effect` without `.set()` — use `signal.set(expression)` |
+| W025 | Component function without `**kwargs` — limits pass-through attributes |
+| W026 | `f()` helper with < 3 signals — prefer `+` operator for 1-2 signals |
+| W027 | File > 400 lines — consider splitting into smaller modules |
+| W028 | Deep nesting (>3 levels) — extract to sub-component for better LoB |
+| W029 | Signal not used in backend without `_` prefix — indicate frontend-only |
+| W030 | `js()` that StarHTML can handle — Locality of Behavior violation |
 
 ---
 
