@@ -53,7 +53,6 @@ HELP_LLM = textwrap.dedent("""
 
     - **ERRORS** — must fix, will break runtime or reactivity
     - **WARNINGS** — should fix, may cause subtle bugs or UX issues
-    - **INFO** — informational, review if unexpected
     - **SUMMARY** — signal inventory + total counts
 
     ## ERROR CODES (must fix)
@@ -268,7 +267,7 @@ HELP_LLM = textwrap.dedent("""
 
 @dataclass
 class Issue:
-    level: Literal["ERROR", "WARNING", "INFO"]
+    level: Literal["ERROR", "WARNING"]
     line: int
     code: str
     message: str
@@ -568,7 +567,7 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                 if kw.arg and isinstance(kw.value, ast.Name):
                     self._backend_signals.add(kw.value.id)
 
-        # I001: Computed Signal (INFO → W017)
+        # I001: Computed Signal
         if func_name == "Signal":
             if len(node.args) >= 2:
                 second_arg = node.args[1]
@@ -581,7 +580,7 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                         message="Computed Signal detected (expression as initial value, auto-updates)",
                         original=self._get_line(node.lineno)
                     ))
-            # I004: _ref_only=True (INFO → W018)
+            # I004: _ref_only=True
             for kw in node.keywords:
                 if kw.arg == "_ref_only" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
                     self.issues.append(Issue(
@@ -602,7 +601,7 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                 original=self._get_line(node.lineno)
             ))
 
-        # W009: f-string in elements() selector (INFO → W019)
+        # W009: f-string in elements() selector
         if func_name == "elements":
             if len(node.args) >= 2 and isinstance(node.args[1], ast.JoinedStr):
                 self.issues.append(Issue(
