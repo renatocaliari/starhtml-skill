@@ -95,6 +95,10 @@ HELP_LLM = textwrap.dedent("""
 
     ## WARNING CODES (review — may be intentional)
 
+    - **W003** — 3+ signals with `&` operator — prefer `all()` for readability
+      GOT:  a & b & c  # 3 signals chained
+      FIX:  all(a, b, c)
+
     - **W008** — Signal name too short → prefer descriptive snake_case names
       GOT:  Signal("x", 0)
       FIX:  Signal("counter", 0)
@@ -119,7 +123,34 @@ HELP_LLM = textwrap.dedent("""
     - **W019** — f-string in `elements()` selector — verify selector is static
       GOT:  elements(content, f"#todo-{id}")
 
-    - **W020** — `elements()` replace-mode — ensure element preserves `id`
+    - **W020** — `elements()` replace-mode without explicit `id` — element may not be targetable later
+      GOT:  elements(Div(cls="content"), "#target")
+      FIX:  elements(Div(id="target", cls="content"), "#target")
+      NOTE: No warning if element has `id=`, uses variable/function return, or uses append/prepend mode
+
+    - **W021** — `switch()` used for CSS classes — use `collect()` to combine multiple classes
+      GOT:  data_attr_class=switch([(is_active, "active")], default="")
+      FIX:  data_attr_class=collect([(is_active, "active")])
+
+    - **W022** — `collect()` used for exclusive logic — use `switch()` or `if_()` for single result
+      GOT:  data_text=collect([(is_valid, "OK", "Error")])
+      FIX:  data_text=status.if_("Active", "Inactive")
+
+    - **W023** — `.then()` without conditional signal — verify a boolean signal is used
+      GOT:  data_on_click=then(post("/api/save"))
+      FIX:  data_on_click=is_valid.then(post("/api/save"))
+
+    - **W024** — `data_effect` without `.set()` — use `signal.set(expression)` for side effects
+      GOT:  data_effect=price * quantity
+      FIX:  data_effect=total.set(price * quantity)
+
+    - **W025** — Component function without `**kwargs` — limits pass-through attributes
+      GOT:  def Modal(body_content):
+      FIX:  def Modal(body_content, **kwargs):
+
+    - **W026** — `f()` helper with < 3 signals — prefer `+` operator for 1-2 signals
+      GOT:  f("Hello {name}", name=username)  # only 1 signal
+      FIX:  "Hello " + username  (saves tokens)
 
     ## ERROR CODES (BUGS — broken code, do not ship)
 
@@ -179,13 +210,59 @@ HELP_LLM = textwrap.dedent("""
       GOT:  js("doSomething(" + user_input + ")")
       FIX:  (item := Signal("item", user_input)); js("doSomething($item)")
 
-    ## STARHTML RULES (5 non-negotiable)
+    - **E015** — Plugin data attribute used without plugin registration
+      GOT:  Div(data_persist=theme)  # but no plugin imported
+      FIX:  from starhtml.plugins import persist; app.register(persist)
 
-    - **R1** — No f-strings in reactive attributes (become static)
-    - **R2** — `data_show` always needs flash prevention
-    - **R3** — Positional arguments BEFORE keyword arguments
-    - **R4** — Signal names must be snake_case
-    - **R5** — Walrus `:=` must be wrapped in outer parentheses
+    - **E016** — `data_on_submit` with `post()` without `{"prevent": True}` — form reloads page
+      GOT:  data_on_submit=(post("/api/save"), {"prevent": False})
+      FIX:  data_on_submit=(post("/api/save"), {"prevent": True})
+
+    ## WARNING CODES (review — may be intentional)
+
+    - **W021** — `switch()` used for CSS classes — use `collect()` to combine multiple classes
+      GOT:  data_attr_class=switch([(is_active, "active")], default="")
+      FIX:  data_attr_class=collect([(is_active, "active")])
+
+    - **W022** — `collect()` used for exclusive logic — use `switch()` or `if_()` for single result
+      GOT:  data_text=collect([(is_valid, "OK", "Error")])
+      FIX:  data_text=status.if_("Active", "Inactive")
+
+    - **W023** — `.then()` without conditional signal — verify a boolean signal is used
+      GOT:  data_on_click=then(post("/api/save"))
+      FIX:  data_on_click=is_valid.then(post("/api/save"))
+
+    - **W024** — `data_effect` without `.set()` — use `signal.set(expression)` for side effects
+      GOT:  data_effect=price * quantity
+      FIX:  data_effect=total.set(price * quantity)
+
+    - **W025** — Component function without `**kwargs` — limits pass-through attributes
+      GOT:  def Modal(body_content):
+      FIX:  def Modal(body_content, **kwargs):
+
+    - **W026** — `f()` helper with < 3 signals — prefer `+` operator for 1-2 signals
+      GOT:  f("Hello {name}", name=username)  # only 1 signal
+      FIX:  "Hello " + username  (saves tokens)
+
+    - **W027** — File > 400 lines — consider splitting into smaller modules
+      GOT:  File has 450 lines
+      FIX:  Split into components.py, routes.py, handlers.py
+
+    - **W028** — Deep nesting (>3 levels) — extract to sub-component for better LoB
+      GOT:  Div(Div(Div(Div(...))))  # 4 levels
+      FIX:  Extract inner Divs to separate component function
+
+    - **W029** — Signal not used in backend without `_` prefix — indicate frontend-only
+      GOT:  (counter := Signal("counter", 0))  # never sent to backend
+      FIX:  (_counter := Signal("_counter", 0))
+
+    - **W030** — js() that StarHTML can handle — LoB violation
+      GOT:  js("element.classList.add('active')")
+      FIX:  data_attr_class=is_active.if_("active", "")
+
+    - **W003** — 3+ signals with `&` operator — prefer `all()` for readability
+      GOT:  a & b & c  # 3 signals chained
+      FIX:  all(a, b, c)
 """)
 
 
@@ -220,6 +297,23 @@ REACTIVE_PREFIXES = ("data_on_", "data_class_", "data_style_", "data_attr_", "da
 
 HTTP_ACTIONS = {"get", "post", "put", "patch", "delete"}
 
+# Plugin-specific data attributes
+PLUGIN_DATA_ATTRS = {
+    "persist": {"data_persist"},
+    "scroll": {"data_scroll", "data_scroll_into_view"},
+    "resize": {"data_resize"},
+    "drag": {"data_drag", "data_drop_zone"},
+    "canvas": {"data_canvas"},
+    "position": {"data_position"},
+    "motion": {"data_motion", "data_motion_enter", "data_motion_exit", "data_motion_hover", 
+               "data_motion_press", "data_motion_in_view", "data_motion_scroll_link", 
+               "data_on_motion_start", "data_on_motion_complete", "data_on_motion_cancel"},
+    "markdown": {"data_markdown"},
+    "katex": {"data_katex"},
+    "mermaid": {"data_mermaid"},
+    "split": {"data_split"},
+}
+
 TAILWIND_SIZE_PATTERN = re.compile(r"(size-|w-|h-)(\d+|\d+/\d+|full|screen|min|max|px|auto|fit)")
 
 
@@ -238,16 +332,65 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
         self._sse_functions: list[str] = []
         self._sse_has_yield_signals: set[str] = set()
         self._current_func: str = ""
+        # Plugin tracking
+        self._registered_plugins: set[str] = set()
+        self._used_plugin_attrs: dict[int, tuple[str, str]] = {}  # lineno -> (attr, plugin_name)
+        # Track f() usage with signal count for I003
+        self._f_helper_usage: list[tuple[int, int]] = []  # (lineno, signal_count)
+        # Track .then() calls for W023
+        self._then_calls: list[int] = []  # lineno
+        # Track data_effect for W024
+        self._data_effect_usage: list[int] = []  # lineno
+        # Track switch/collect usage for W021/W022
+        self._switch_usage: list[int] = []  # lineno
+        self._collect_usage: list[int] = []  # lineno
+        # Track signal operators for I004
+        self._and_chains: list[int] = []  # lineno
+        # Track component functions for W025
+        self._component_functions: list[tuple[str, int, bool]] = []  # (name, lineno, has_kwargs)
+        # Track js() usage for W030 (LoB violations)
+        self._js_calls: list[tuple[int, str]] = []  # (lineno, js_code)
+        # Track deep nesting in components
+        self._max_nesting_depth: int = 0
+        self._deep_nesting_locations: list[tuple[int, int]] = []  # (lineno, depth)
+        # Track signals used in backend (HTTP actions) for W029
+        self._backend_signals: set[str] = set()
+        self._all_signal_definitions: dict[str, int] = {}  # signal_name -> lineno
 
     def visit_ImportFrom(self, node: ast.ImportFrom):
         if node.module == "starhtml.datastar":
             for alias in node.names:
                 if alias.name == "f":
                     self._has_f_import = True
+        # Track plugin imports: from starhtml.plugins import persist, scroll, etc.
+        if node.module == "starhtml.plugins":
+            for alias in node.names:
+                self._registered_plugins.add(alias.name)
         self.generic_visit(node)
 
     def visit_FunctionDef(self, node: ast.FunctionDef):
         self._current_func = node.name
+        # Check if function has **kwargs (for W025 - component functions)
+        has_kwargs = any(isinstance(arg, ast.kwarg) for arg in node.args.kwonlyargs) or \
+                     (node.args.kwarg is not None)
+        # Check if function returns HTML elements (simple heuristic: has Div, Span, etc. in body)
+        returns_html = False
+        for child in ast.walk(node):
+            if isinstance(child, ast.Call):
+                if isinstance(child.func, ast.Name) and child.func.id in {"Div", "Span", "Button", "Input", "Form", "Label", "Select", "Textarea", "Ul", "Ol", "Li", "Table", "Tr", "Td", "Th", "H1", "H2", "H3", "H4", "H5", "H6", "P", "A", "Img", "Canvas", "Svg", "Nav", "Header", "Footer", "Main", "Section", "Article", "Aside"}:
+                    returns_html = True
+                    break
+        # Only track as component if it returns HTML and is not an SSE handler or utility function
+        # SSE handlers typically have @sse decorator or yield statements
+        is_sse_handler = any(name == node.name for name, _ in self._sse_functions)
+        has_yield = any(isinstance(child, ast.Yield) for child in ast.walk(node))
+        is_utility = node.name.startswith("_") or "todo" in node.name.lower() and "render" in node.name.lower()
+        
+        if returns_html and not is_sse_handler and not has_yield and not is_utility:
+            self._component_functions.append((node.name, node.lineno, has_kwargs))
+            # Calculate nesting depth for this component
+            self._calculate_nesting_depth(node)
+        
         for decorator in node.decorator_list:
             is_sse = False
             # Handle @sse, @app.sse, and aliased imports
@@ -415,6 +558,15 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                 original=self._get_line(node.lineno),
                 fix="Use signal references: (item := Signal('item', val)); js('doSomething($item)')"
             ))
+            # Track js() calls for W030 (LoB violations)
+            js_code = self._get_line(node.lineno)
+            self._js_calls.append((node.lineno, js_code))
+
+        # Track signals used in HTTP actions (for W029 - frontend-only signals)
+        if func_name in HTTP_ACTIONS:
+            for kw in node.keywords:
+                if kw.arg and isinstance(kw.value, ast.Name):
+                    self._backend_signals.add(kw.value.id)
 
         # I001: Computed Signal (INFO → W017)
         if func_name == "Signal":
@@ -462,9 +614,36 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                     fix='If dynamic: elements(content, "#target-" + id_sig)\nIf static: elements(content, "#todo-123")  # OK'
                 ))
 
-        # Track f() usage
+        # Track plugin data attributes usage
+        for kw in node.keywords:
+            if kw.arg:
+                # Check each plugin's attributes
+                for plugin_name, attrs in PLUGIN_DATA_ATTRS.items():
+                    if kw.arg in attrs:
+                        self._used_plugin_attrs[kw.lineno] = (kw.arg, plugin_name)
+                        break
+
+        # Track f() usage with signal count for I003
         if func_name == "f":
             self._uses_f_helper.append(node.lineno)
+            # Count keyword arguments as signal count
+            signal_count = len(node.keywords)
+            self._f_helper_usage.append((node.lineno, signal_count))
+
+        # Track switch() and collect() usage for W021/W022
+        if func_name == "switch":
+            self._switch_usage.append(node.lineno)
+        if func_name == "collect":
+            self._collect_usage.append(node.lineno)
+
+        # Track .then() calls for W023
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "then":
+            self._then_calls.append(node.lineno)
+
+        # Track data_effect for W024
+        for kw in node.keywords:
+            if kw.arg == "data_effect":
+                self._data_effect_usage.append(node.lineno)
 
         # Track SSE yield signals
         if func_name == "signals" and self._current_func:
@@ -511,6 +690,7 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                         self.signals.append(sig_name)
                         self._seen_signals.add(sig_name)
                         self._defined_signals.add(sig_name)
+                        self._all_signal_definitions[sig_name] = node.lineno
         self.generic_visit(node)
 
     def visit_Assign(self, node: ast.Assign):
@@ -523,7 +703,39 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                             self.signals.append(sig_name)
                             self._seen_signals.add(sig_name)
                             self._defined_signals.add(sig_name)
+                            self._all_signal_definitions[sig_name] = node.lineno
         self.generic_visit(node)
+
+    def visit_BinOp(self, node: ast.BinOp):
+        # Track & (BitAnd) operator chains for W003
+        if isinstance(node.op, ast.BitAnd):
+            self._and_chains.append(node.lineno)
+        self.generic_visit(node)
+
+    def _calculate_nesting_depth(self, node: ast.AST, current_depth: int = 0, max_depth: int = 10) -> int:
+        """Calculate maximum nesting depth of HTML elements in a node."""
+        if current_depth > max_depth:
+            return current_depth
+        
+        html_elements = {"Div", "Span", "Button", "Input", "Form", "Label", "Select", 
+                        "Textarea", "Ul", "Ol", "Li", "Table", "Tr", "Td", "Th", 
+                        "H1", "H2", "H3", "H4", "H5", "H6", "P", "A", "Img", 
+                        "Canvas", "Svg", "Nav", "Header", "Footer", "Main", 
+                        "Section", "Article", "Aside", "Card", "Modal"}
+        
+        max_child_depth = current_depth
+        
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id in html_elements:
+                current_depth += 1
+                if current_depth > 5:  # Threshold for warning (was 3)
+                    self._deep_nesting_locations.append((node.lineno, current_depth))
+        
+        for child in ast.iter_child_nodes(node):
+            child_depth = self._calculate_nesting_depth(child, current_depth, max_depth)
+            max_child_depth = max(max_child_depth, child_depth)
+        
+        return max_child_depth
 
     def _get_line(self, lineno: int) -> str:
         if 1 <= lineno <= len(self.lines):
@@ -631,20 +843,42 @@ def check_regex(source: str, issues: list[Issue], lines: list[str]) -> None:
                     fix='Use descriptive name: Signal("counter", 0) instead of Signal("x", 0)'
                 ))
 
-    # W020: elements() replace-mode (INFO → WARNING)
-    # Use AST-aware check by looking at the actual function call context
+    # W020: elements() replace-mode — check if element has id matching selector
+    # Only warn if element does NOT have explicit id or selector doesn't match
     for i, line in enumerate(lines, 1):
+        # Skip docstrings and comment lines
+        stripped = line.strip()
+        if stripped.startswith('"""') or stripped.startswith("'''") or stripped.startswith("#"):
+            continue
+            
         if "elements(" in line:
             # Check if this line or next few lines have append/prepend
             context_lines = "\n".join(lines[i-1:min(i+3, len(lines))])
             has_append_prepend = any(x in context_lines for x in ["\"append\"", "\"prepend\"", "'append'", "'prepend'"])
-            if not has_append_prepend:
+            if has_append_prepend:
+                continue  # append/prepend mode doesn't need id matching
+
+            # Check if element has explicit id attribute
+            # Pattern 1: Div(id="...", ...) or similar with literal id
+            has_explicit_id = bool(re.search(r'elements\s*\(\s*\w+\s*\([^)]*id\s*=\s*["\'][^"\']+["\']', line))
+            # Pattern 2: id=f"..." with f-string (dynamic but valid)
+            has_explicit_id = has_explicit_id or bool(re.search(r'elements\s*\(\s*\w+\s*\([^)]*id\s*=\s*f["\'][^"\']*["\']', line))
+            # Pattern 3: id=... with string concatenation (e.g., "#todo-" + str(id))
+            has_explicit_id = has_explicit_id or bool(re.search(r'elements\s*\(\s*\w+\s*\([^)]*id\s*=\s*[^,)]*\+', line))
+            # Pattern 4: element is a variable (function return or variable reference)
+            # e.g., elements(todo_element, "...") or elements(render_todo(todo), "...")
+            # In this case, assume developer knows what they're doing
+            has_variable_element = bool(re.search(r'elements\s*\(\s*[a-z_][a-z0-9_]*\s*\(', line, re.IGNORECASE))
+            has_variable_element = has_variable_element or bool(re.search(r'elements\s*\(\s*[a-z_][a-z0-9_]*\s*,', line, re.IGNORECASE))
+
+            if not has_explicit_id and not has_variable_element:
                 issues.append(Issue(
                     level="WARNING",
                     line=i,
                     code="W020",
                     message="`elements()` replace-mode — ensure returned element preserves `id` for future targeting",
-                    original=line.strip()
+                    original=line.strip(),
+                    fix="Add id to element: elements(Div(id=\"target\", ...), \"#target\")"
                 ))
 
 
@@ -690,6 +924,199 @@ def check_post(analyzer: StarHTMLAnalyzer, issues: list[Issue]) -> None:
                 fix=f'Define signal: ({sig_name} := Signal("{sig_name}", 0))'
             ))
 
+    # E015: Plugin data attribute used without plugin import/registration
+    for lineno, (attr, plugin_name) in analyzer._used_plugin_attrs.items():
+        if plugin_name not in analyzer._registered_plugins:
+            issues.append(Issue(
+                level="ERROR",
+                line=lineno,
+                code="E015",
+                message=f"`{attr}` requires plugin `{plugin_name}` — import and register it",
+                original=analyzer._get_line(lineno),
+                fix=f'Add: from starhtml.plugins import {plugin_name}\n'
+                    f'Then: app.register({plugin_name})'
+            ))
+
+    # E016: data_on_submit with post() but without {"prevent": True}
+    for lineno, line in enumerate(analyzer.lines, 1):
+        if "data_on_submit" in line and "post(" in line:
+            if '{"prevent": True}' not in line and "{'prevent': True}" not in line:
+                issues.append(Issue(
+                    level="ERROR",
+                    line=lineno,
+                    code="E016",
+                    message="`data_on_submit` with `post()` without `{{\"prevent\": True}}` — form reloads page",
+                    original=line.strip(),
+                    fix='Add prevent modifier: data_on_submit=(post("/api/save"), {"prevent": True})'
+                ))
+
+    # W021: switch() used for CSS classes (should use collect())
+    for lineno in analyzer._switch_usage:
+        line = analyzer._get_line(lineno)
+        # Check if switch is used in data_attr_class or data_class_* context
+        if "data_attr_class" in line or "data_class_" in line:
+            issues.append(Issue(
+                level="WARNING",
+                line=lineno,
+                code="W021",
+                    message="`switch()` used for CSS classes — use `collect()` to combine multiple classes",
+                original=line.strip(),
+                fix="Use collect() for CSS classes: data_attr_class=collect([(cond1, 'class1'), (cond2, 'class2')])"
+            ))
+
+    # W022: collect() used for exclusive logic (should use switch() or if_())
+    for lineno in analyzer._collect_usage:
+        line = analyzer._get_line(lineno)
+        # Check if collect is used in non-CSS context (data_text, data_html, etc.)
+        if "data_text" in line or "data_html" in line or "data_value" in line:
+            issues.append(Issue(
+                level="WARNING",
+                line=lineno,
+                code="W022",
+                message="`collect()` used for exclusive logic — use `switch()` or `if_()` for single result",
+                original=line.strip(),
+                fix="Use switch() or if_() for exclusive logic: data_text=status.if_('Active', 'Inactive')"
+            ))
+
+    # W026: f() helper with < 3 signals (prefer + operator)
+    for lineno, signal_count in analyzer._f_helper_usage:
+        if signal_count < 3:
+            line = analyzer._get_line(lineno)
+            issues.append(Issue(
+                level="WARNING",
+                line=lineno,
+                code="W026",
+                message=f"`f()` helper with {signal_count} signal(s) — prefer `+` operator for 1-2 signals",
+                original=line.strip(),
+                fix='Use + operator: "Label: " + signal  (saves tokens, simpler code)'
+            ))
+
+    # W023: .then() without conditional signal
+    for lineno in analyzer._then_calls:
+        line = analyzer._get_line(lineno)
+        # Check if .then() is called on a signal (has signal name before .then)
+        # Simple heuristic: check if there's a signal-like pattern before .then
+        has_conditional = bool(re.search(r'[a-z_][a-z0-9_]*\.then\(', line))
+        if not has_conditional:
+            issues.append(Issue(
+                level="WARNING",
+                line=lineno,
+                code="W023",
+                message="`.then()` without conditional signal — verify a boolean signal is used",
+                original=line.strip(),
+                fix="Use boolean signal: is_valid.then(post('/api/save'))"
+            ))
+
+    # W003: 3+ signals with & operator (prefer all())
+    # Count & operators on same line
+    for lineno in analyzer._and_chains:
+        line = analyzer._get_line(lineno)
+        and_count = line.count(" & ")
+        if and_count >= 2:  # 2 & means 3+ signals
+            issues.append(Issue(
+                level="WARNING",
+                line=lineno,
+                code="W003",
+                message=f"3+ signals with `&` operator — prefer `all(a, b, c)` for readability",
+                original=line.strip(),
+                fix="Use all(): all(sig1, sig2, sig3) instead of sig1 & sig2 & sig3"
+            ))
+
+    # W024: data_effect without .set() assignment
+    for lineno in analyzer._data_effect_usage:
+        line = analyzer._get_line(lineno)
+        # Check if data_effect value has .set() call
+        if ".set(" not in line:
+            issues.append(Issue(
+                level="WARNING",
+                line=lineno,
+                code="W024",
+                message="`data_effect` without `.set()` — use `signal.set(expression)` for side effects",
+                original=line.strip(),
+                fix="Use .set(): data_effect=total.set(price * quantity)"
+            ))
+
+    # W025: Component function without **kwargs
+    for func_name, func_lineno, has_kwargs in analyzer._component_functions:
+        if not has_kwargs:
+            issues.append(Issue(
+                level="WARNING",
+                line=func_lineno,
+                code="W025",
+                message=f"Component `{func_name}` without `**kwargs` — limits pass-through attributes",
+                original=f"def {func_name}(...):",
+                fix=f"def {func_name}(..., **kwargs):  # then pass **kwargs to root element"
+            ))
+
+    # W027: File > 400 lines (suggest split)
+    if len(analyzer.lines) > 400:
+        issues.append(Issue(
+            level="WARNING",
+            line=1,
+            code="W027",
+            message=f"File has {len(analyzer.lines)} lines — consider splitting into smaller modules (max 400 lines)",
+            original=f"File: {analyzer.lines[0] if analyzer.lines else ''}",
+            fix="Split into multiple files: components.py, routes.py, handlers.py, etc."
+        ))
+
+    # W028: Deep nesting (>3 levels) in components
+    for lineno, depth in analyzer._deep_nesting_locations:
+        issues.append(Issue(
+            level="WARNING",
+            line=lineno,
+            code="W028",
+            message=f"Deep nesting ({depth} levels) — extract to sub-component for better LoB",
+            original=analyzer._get_line(lineno),
+            fix="Extract nested elements to a separate component function"
+        ))
+
+    # W029: Signal used only frontend without _ prefix
+    for sig_name, lineno in analyzer._all_signal_definitions.items():
+        if sig_name not in analyzer._backend_signals and not sig_name.startswith("_"):
+            # Skip common names and signals that might be used indirectly
+            if sig_name in {"index", "id", "type", "name", "value", "cls", "todo", "item", "data", "content", "text", "title", "message"}:
+                continue
+            # Skip computed signals (they're usually frontend-only by design)
+            if "getter=" in analyzer._get_line(lineno):
+                continue
+            issues.append(Issue(
+                level="WARNING",
+                line=lineno,
+                code="W029",
+                message=f"Signal `{sig_name}` not used in backend — consider `_` prefix for frontend-only signals",
+                original=analyzer._get_line(lineno),
+                fix=f"Rename to _{sig_name} to indicate frontend-only usage"
+            ))
+
+    # W030: js() that could be StarHTML (LoB violation)
+    for lineno, js_code in analyzer._js_calls:
+        # Check if js() is used for something that StarHTML could handle
+        # Patterns that StarHTML handles well: show/hide, class toggle, simple value updates
+        lob_violations = [
+            ("showModal()", "data_show with <dialog> element"),
+            ("close()", "data_show to hide <dialog>"),
+            (".classList.add", "data_class_* or data_attr_class"),
+            (".classList.remove", "data_class_* or data_attr_class"),
+            (".style.display", "data_show or data_style_display"),
+            (".style.opacity", "data_style_opacity"),
+            (".value =", "data_bind for two-way binding"),
+            (".textContent", "data_text"),
+            (".innerHTML", "data_html"),
+            ("alert(", "custom modal with data_show"),
+            ("confirm(", "custom confirmation modal"),
+        ]
+        for pattern, suggestion in lob_violations:
+            if pattern in js_code:
+                issues.append(Issue(
+                    level="WARNING",
+                    line=lineno,
+                    code="W030",
+                    message=f"js() using `{pattern}` — StarHTML can handle this with {suggestion} (LoB)",
+                    original=js_code.strip(),
+                    fix=f"Use StarHTML attribute: {suggestion}"
+                ))
+                break
+
 
 def auto_fix(source: str) -> str:
     """Apply safe automatic fixes."""
@@ -712,7 +1139,6 @@ def format_report(issues: list[Issue], analyzer: StarHTMLAnalyzer, filename: str
     """Format the analysis report."""
     errors = [i for i in issues if i.level == "ERROR"]
     warnings = [i for i in issues if i.level == "WARNING"]
-    infos = [i for i in issues if i.level == "INFO"]
 
     lines = [f"── starhtml-check: {filename} ──"]
 
@@ -725,11 +1151,6 @@ def format_report(issues: list[Issue], analyzer: StarHTMLAnalyzer, filename: str
         if warnings:
             lines.append(f"\nWARNINGS ({len(warnings)}):")
             for issue in warnings:
-                lines.append(str(issue))
-
-        if infos:
-            lines.append(f"\nINFO ({len(infos)}):")
-            for issue in infos:
                 lines.append(str(issue))
 
     # Summary

@@ -382,5 +382,4 @@ python starhtml_check.py --fix f.py
 
 - **ERRORS** — must fix, will break runtime or reactivity
 - **WARNINGS** — should fix, may cause subtle bugs or UX issues
-- **INFO** — informational, review if unexpected
 - **SUMMARY** — signal inventory + total counts
