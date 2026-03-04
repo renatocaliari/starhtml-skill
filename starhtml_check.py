@@ -220,6 +220,19 @@ HELP_LLM = textwrap.dedent("""
       GOT:  data_on_submit=(post("/api/save"), {"prevent": False})
       FIX:  data_on_submit=(post("/api/save"), {"prevent": True})
 
+    - **E017** — `Signal.value` access — Signals don't have .value attribute
+      GOT:  todos.value.append(item)
+      FIX:  Use Python variable: todos_data = []  # not Signal
+      NOTE: Signals are reactive state references, NOT data containers
+
+    - **E018** — `len(signal)` — Signals don't support len()
+      GOT:  len(todos)  # where todos is a Signal
+      FIX:  Use Python variable: todos_data = []; len(todos_data)
+
+    - **E019** — `signals()` with positional arguments — use keyword arguments
+      GOT:  yield signals(count, status)
+      FIX:  yield signals(count=count, status=status)
+
     ## WARNING CODES (review — may be intentional)
 
     - **W021** — `switch()` used for CSS classes — use `collect()` to combine multiple classes
@@ -414,6 +427,40 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
             func_name = node.func.id
         elif isinstance(node.func, ast.Attribute):
             func_name = node.func.attr
+
+        # E018: len(signal) — Signals don't support len()
+        if func_name == "len":
+            if node.args and isinstance(node.args[0], ast.Name):
+                arg_name = node.args[0].id
+                if arg_name in self._defined_signals:
+                    self.issues.append(Issue(
+                        level="ERROR",
+                        line=node.lineno,
+                        code="E018",
+                        message=f"`len({arg_name})` — Signals don't support len(); use Python variable for data",
+                        original=self._get_line(node.lineno),
+                        fix=f"Store data in Python: {arg_name}_data = []  # then len({arg_name}_data)"
+                    ))
+
+        # E019: signals() with positional arguments
+        if func_name == "signals":
+            # Check if any positional arguments (other than the first optional only_if_missing)
+            positional_args = []
+            for i, arg in enumerate(node.args):
+                # First arg could be only_if_missing (boolean)
+                if i == 0 and isinstance(arg, ast.Constant) and isinstance(arg.value, bool):
+                    continue  # Valid: signals(True) or signals(False)
+                positional_args.append(arg)
+            
+            if positional_args:
+                self.issues.append(Issue(
+                    level="ERROR",
+                    line=node.lineno,
+                    code="E019",
+                    message="`signals()` with positional arguments — use keyword arguments only",
+                    original=self._get_line(node.lineno),
+                    fix="Use kwargs: yield signals(count=1, status='done')  # NOT signals(count, status)"
+                ))
 
         # E001: positional arg after keyword — SyntaxError
         # Note: Python's parser catches this, but we document it for completeness
@@ -732,6 +779,21 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
         # Track & (BitAnd) operator chains for W003
         if isinstance(node.op, ast.BitAnd):
             self._and_chains.append(node.lineno)
+        self.generic_visit(node)
+
+    def visit_Attribute(self, node: ast.Attribute):
+        # E017: Signal.value usage — Signals don't have .value attribute
+        if node.attr == "value":
+            # Check if this is a Signal (defined in _defined_signals)
+            if isinstance(node.value, ast.Name) and node.value.id in self._defined_signals:
+                self.issues.append(Issue(
+                    level="ERROR",
+                    line=node.lineno,
+                    code="E017",
+                    message=f"`{node.value.id}.value` — Signals don't have .value attribute; use Python variables for data",
+                    original=self._get_line(node.lineno),
+                    fix=f"Store data in Python: {node.value.id}_data = []  # not Signal"
+                ))
         self.generic_visit(node)
 
     def _calculate_nesting_depth(self, node: ast.AST, current_depth: int = 0, max_depth: int = 10) -> int:

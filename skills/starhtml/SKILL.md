@@ -16,7 +16,7 @@ StarHTML = Python objects that compile to reactive Datastar HTML.
 
 ---
 
-## The 5 Rules You Must Not Break
+## The 6 Rules You Must Not Break
 
 **R1 — No f-strings in reactive attributes (they become static)**
 
@@ -65,6 +65,86 @@ StarHTML = Python objects that compile to reactive Datastar HTML.
 
     # RIGHT — works as positional argument in HTML elements:
     (name := Signal("name", ""))
+
+**R6 — Signals are reactive state references, NOT data containers**
+
+    # ❌ WRONG — Signals are NOT for storing/accessing data:
+    todos = Signal("todos", [])
+    todos.value.append(item)  # .value does NOT exist!
+    print(len(todos))         # Signals don't support len()!
+
+    # ✅ RIGHT — Use plain Python variables for data:
+    todos_data = []           # Python variable for the actual data
+    (todos_count := Signal("todos_count", 0))  # Signal for reactive UI state
+
+    # Add item to data:
+    todos_data.append({"id": 1, "text": "Buy milk"})
+
+    # Update Signal (syncs to frontend, can be received in backend):
+    yield signals(todos_count=len(todos_data))
+
+---
+
+## Understanding Signals vs Data
+
+**Signals** are reactive state references that sync between frontend (`$signalName` in JS) and backend (Python `Signal` objects). They are **NOT** Python containers for data.
+
+**Data** lives in **regular Python variables** (lists, dicts, strings, etc.).
+
+### Pattern: Python Data + Reactive Signals
+
+```python
+# State management with pure Python
+todos_data = []      # The actual data (Python list)
+next_id = 1          # Counter (Python int)
+
+# Signals for reactive state (frontend + backend)
+(todos_count := Signal("todos_count", 0))
+(is_loading := Signal("is_loading", False))
+
+@rt("/todos/add", methods=["POST"])
+@sse
+def add_todo(todo_text: str):
+    global next_id
+
+    # 1. Update Python data (always use variables for data)
+    todos_data.append({"id": next_id, "text": todo_text})
+    next_id += 1
+
+    # 2. Send updated UI to client
+    yield elements(render_todo_item(todos_data[-1]), "#todo-list", "append")
+
+    # 3. Update Signals (syncs to frontend AND can be received in backend)
+    yield signals(todos_count=len(todos_data), is_loading=False)
+```
+
+### Signals Can Flow Both Ways
+
+```python
+# Frontend → Backend: Signal as parameter
+@rt("/api/search")
+@sse
+def search(req, query: Signal):  # Receives Signal from frontend
+    results = db.search(query)   # Can read Signal in backend
+    yield signals(results_count=len(results))
+```
+
+### Frontend-Only Signals (optional `_` prefix)
+
+```python
+# Signal with _ prefix = frontend-only by convention
+# (no backend parameter, not received in SSE handlers)
+(_animation_state := Signal("_animation_state", "idle"))
+
+# With _ref_only=True, Signal is excluded from data-signals HTML attribute
+(_cache := Signal("_cache", {}, _ref_only=True))
+```
+
+**Key points:**
+- Never try to read `signal.value` or use `len(signal)` — Signals are not containers
+- Store data in Python variables; use Signals for reactive state that syncs UI
+- Signals without `_` prefix automatically sync to backend via parameters
+- In SSE: always `yield signals(...)` at the end to reset state
 
 ---
 
@@ -338,6 +418,22 @@ For Icon() component: see `./reference/icons.md`
 For js(), f(), regex(): see `./reference/js.md`
 For plugins API (persist, scroll, resize, drag, canvas, position, motion): see `./reference/handlers.md`
 For slot system: see `./reference/slots.md`
+
+---
+
+## Common Errors (and How to Fix Them)
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `Signal has no len()` or `AttributeError: 'Signal' object has no attribute 'value'` | Treating Signal as data container (Signals are reactive state, not data) | Use Python variables for data: `todos_data = []` instead of `Signal("todos", [])` |
+| `signals() takes 0 to 1 positional arguments` | Passing positional args to `signals()` | Use kwargs: `yield signals(count=1, status="done")` not `signals(count, status)` |
+| `Method not found on $signal` (JS console) | Using plugin attributes without registering | Import and register: `app.register(persist)` |
+| `NameError: name 'xyz' is not defined` | Using Signal without walrus `:=` parentheses | Wrap in parens: `(xyz := Signal("xyz", 0))` |
+| `SyntaxError: positional argument follows keyword argument` | Wrong argument order | Content first, attributes after: `Div("text", cls="class")` |
+| Element flashes before hiding on load | Missing flash prevention | Add `style="display:none"` with `data_show` |
+| Form submits and reloads page | Missing `{"prevent": True}` | Add: `data_on_submit=(post("/api"), {"prevent": True})` |
+| SSE endpoint leaves UI in loading state | Missing `yield signals()` reset | Always end with: `yield signals(loading=False)` |
+| Signal value not updating in backend handler | Trying to read `signal.value` | Receive Signal as parameter: `def handler(req, my_sig: Signal)` |
 
 ---
 
