@@ -188,13 +188,14 @@ count.default(0)               # nullish fallback
 theme.one_of("light", "dark")  # enum guard
 ```
 
-### The 5 Rules
+### The 6 Rules
 
 1. **No f-strings in reactive attrs** → use `+` or `f()` helper
 2. **data_show needs flash prevention** → `style="display:none"`
 3. **Positional args BEFORE keywords** → `Div("Hello", cls="container")`
 4. **Signal names must be snake_case** → `my_count`, not `myCount`
 5. **Walrus `:=` in outer parens** → `(name := Signal("name", ""))`
+6. **Signals are reactive state, NOT data containers** → use Python variables for data
 
 ---
 
@@ -220,6 +221,9 @@ theme.one_of("light", "dark")  # enum guard
 | E014 | `js()` raw JavaScript — potential security risk |
 | E015 | Plugin data attribute used without plugin registration |
 | E016 | `data_on_submit` with `post()` without `{"prevent": True}` — page reloads |
+| E017 | `Signal.value` access — Signals don't have `.value` attribute |
+| E018 | `len(signal)` — Signals don't support `len()` |
+| E019 | `signals()` with positional arguments — use keyword arguments |
 
 ### Warnings (should fix — review, may be intentional)
 
