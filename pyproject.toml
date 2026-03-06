@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "starhtml-check"
-version = "0.2.0"
+dynamic = ["version"]
 description = "Static analyzer for StarHTML — optimized for LLM tool-call loops"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,6 +13,9 @@ dependencies = []  # zero deps — stdlib only
 [project.scripts]
 starhtml-check = "starhtml_check:main"
 starhtml_check = "starhtml_check:main"
+
+[tool.hatch.version]
+source = "vcs"
 
 [tool.hatch.build.targets.wheel]
 packages = ["."]
