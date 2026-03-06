@@ -12,7 +12,6 @@ dependencies = []  # zero deps — stdlib only
 
 [project.scripts]
 starhtml-check = "starhtml_check:main"
-starhtml_check = "starhtml_check:main"
 
 [tool.hatch.version]
 source = "vcs"
