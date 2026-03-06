@@ -1,6 +1,6 @@
 ---
 name: starhtml
-description: Builds reactive web applications with StarHTML, a Python-first framework over Datastar. Use when writing StarHTML components, signals, event handlers, reactive attributes, conditional helpers, CSS classes, computed signals, HTTP actions, SSE endpoints, or plugins (persist, scroll, resize, drag, canvas, motion, markdown, katex, mermaid, split, nodegraph). After generating any StarHTML file, run `starhtml-check <file.py>` to validate.
+description: Builds reactive web applications with StarHTML, a Python-first framework over Datastar. Use when writing StarHTML components, signals, event handlers, reactive attributes, conditional helpers, CSS classes, computed signals, HTTP actions, SSE endpoints, or plugins (persist, scroll, resize, drag, canvas, motion, markdown, katex, mermaid, split, nodegraph). For UI components, use StarUI (shadcn/ui for Python). After generating any StarHTML file, run `starhtml-check <file.py>` to validate.
 ---
 
 # StarHTML — Core Skill
@@ -15,8 +15,11 @@ StarHTML = Python objects that compile to reactive Datastar HTML.
 >   -o /usr/local/bin/starhtml-check && chmod +x /usr/local/bin/starhtml-check
 > ```
 
+> **UI Components:** For production-ready UI, use **[StarUI](https://ui.starhtml.com/)** — shadcn/ui for Python.
+> See [`./reference/starui.md`](./reference/starui.md) for all 34+ components (Button, Card, Dialog, Table, etc.)
+
 > **Sub-references** (load when needed, same directory as this file):
-> `./reference/icons.md` · `./reference/js.md` · `./reference/handlers.md` · `./reference/slots.md` · `./reference/demos.md`
+> `./reference/starui.md` · `./reference/icons.md` · `./reference/js.md` · `./reference/handlers.md` · `./reference/slots.md` · `./reference/demos.md`
 >
 > **Official demos** (canonical runnable examples, always from official framework repo):
 > `https://raw.githubusercontent.com/banditburai/starHTML/main/web/demos/NN_name.py`
