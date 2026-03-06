@@ -34,8 +34,8 @@ This project follows the **Bash + Code philosophy**: agents already know Bash an
 **2. Composable**
 ```bash
 # Chain commands, save to files, integrate anywhere
-starhtml_check component.py --summary > issues.txt
-starhtml_check --fix f.py && git commit -m "fix: $(cat issues.txt)"
+starhtml-check component.py --summary > issues.txt
+starhtml-check --fix f.py && git commit -m "fix: $(cat issues.txt)"
 ```
 
 **3. Extensible**
@@ -99,10 +99,10 @@ Then load the skill based on your agent:
 **Option A — Global install (recommended):**
 ```bash
 # macOS / Linux - system-wide (may require sudo)
-curl -L https://raw.githubusercontent.com/renatocaliari/starhtml-skill/main/starhtml_check.py -o /usr/local/bin/starhtml_check && chmod +x /usr/local/bin/starhtml_check
+curl -L https://raw.githubusercontent.com/renatocaliari/starhtml-skill/main/starhtml_check.py -o /usr/local/bin/starhtml-check && chmod +x /usr/local/bin/starhtml-check
 
 # Or user-local (no sudo required)
-curl -L https://raw.githubusercontent.com/renatocaliari/starhtml-skill/main/starhtml_check.py -o ~/.local/bin/starhtml_check && chmod +x ~/.local/bin/starhtml_check
+curl -L https://raw.githubusercontent.com/renatocaliari/starhtml-skill/main/starhtml_check.py -o ~/.local/bin/starhtml-check && chmod +x ~/.local/bin/starhtml-check
 ```
 
 **Option B — pip install:**
@@ -123,7 +123,7 @@ Once installed globally, update to the latest version anytime:
 
 ```bash
 # Check for updates and install if available
-starhtml_check --update
+starhtml-check --update
 ```
 
 This will:
@@ -138,9 +138,9 @@ This will:
 
 ```bash
 # If installed globally:
-starhtml_check component.py           # full analysis
-starhtml_check --summary f.py         # compact output
-starhtml_check --update               # check for updates and update
+starhtml-check component.py           # full analysis
+starhtml-check --summary f.py         # compact output
+starhtml-check --update               # check for updates and update
 
 # If downloaded locally:
 python starhtml_check.py component.py

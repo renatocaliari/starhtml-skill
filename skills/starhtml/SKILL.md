@@ -446,10 +446,10 @@ The checker is a standalone CLI (zero dependencies, stdlib only) that validates 
 **Option A — Global install (recommended):**
 ```bash
 # macOS / Linux
-curl -L https://raw.githubusercontent.com/renatocaliari/starhtml-skill/main/starhtml_check.py -o /usr/local/bin/starhtml_check && chmod +x /usr/local/bin/starhtml_check
+curl -L https://raw.githubusercontent.com/renatocaliari/starhtml-skill/main/starhtml_check.py -o /usr/local/bin/starhtml-check && chmod +x /usr/local/bin/starhtml-check
 
 # Or to user local bin (no sudo)
-curl -L https://raw.githubusercontent.com/renatocaliari/starhtml-skill/main/starhtml_check.py -o ~/.local/bin/starhtml_check && chmod +x ~/.local/bin/starhtml_check
+curl -L https://raw.githubusercontent.com/renatocaliari/starhtml-skill/main/starhtml_check.py -o ~/.local/bin/starhtml-check && chmod +x ~/.local/bin/starhtml-check
 ```
 
 **Option B — Local download (per-project):**
@@ -462,7 +462,7 @@ curl -O https://raw.githubusercontent.com/renatocaliari/starhtml-skill/main/star
 Once installed globally, update to the latest version anytime:
 
 ```bash
-starhtml_check --update
+starhtml-check --update
 ```
 
 This fetches the latest version from GitHub, creates a backup of your current file, and updates automatically.
@@ -471,9 +471,9 @@ This fetches the latest version from GitHub, creates a backup of your current fi
 
 ```bash
 # If installed globally:
-starhtml_check component.py           # full analysis
-starhtml_check --summary f.py         # compact output (fewer tokens)
-starhtml_check --update               # check for updates and update
+starhtml-check component.py           # full analysis
+starhtml-check --summary f.py         # compact output (fewer tokens)
+starhtml-check --update               # check for updates and update
 
 # If downloaded locally:
 python starhtml_check.py component.py
