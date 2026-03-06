@@ -1,12 +1,19 @@
 ---
 name: starhtml
-description: Builds reactive web applications with StarHTML, a Python-first framework over Datastar. Use when writing StarHTML components, signals, event handlers, reactive attributes, conditional helpers, CSS classes, computed signals, HTTP actions, SSE endpoints, or plugins (persist, scroll, resize, drag, canvas, motion, markdown, katex, mermaid, split, nodegraph). After generating any StarHTML file, always run starhtml_check.py for validation.
+description: Builds reactive web applications with StarHTML, a Python-first framework over Datastar. Use when writing StarHTML components, signals, event handlers, reactive attributes, conditional helpers, CSS classes, computed signals, HTTP actions, SSE endpoints, or plugins (persist, scroll, resize, drag, canvas, motion, markdown, katex, mermaid, split, nodegraph). After generating any StarHTML file, run `starhtml-check <file.py>` to validate.
 ---
 
 # StarHTML — Core Skill
 
 StarHTML = Python objects that compile to reactive Datastar HTML.
-**After generating any component, run: `python starhtml_check.py <file>`**
+
+**After generating any component, validate with:** `starhtml-check <file.py>`
+
+> If `starhtml-check` is not installed:
+> ```bash
+> curl -L https://raw.githubusercontent.com/renatocaliari/starhtml-skill/main/starhtml_check.py \
+>   -o /usr/local/bin/starhtml-check && chmod +x /usr/local/bin/starhtml-check
+> ```
 
 > **Sub-references** (load when needed, same directory as this file):
 > `./reference/icons.md` · `./reference/js.md` · `./reference/handlers.md` · `./reference/slots.md` · `./reference/demos.md`
@@ -443,42 +450,44 @@ The checker is a standalone CLI (zero dependencies, stdlib only) that validates 
 
 ### Install (one-time)
 
-**Option A — Global install (recommended):**
+**Check if installed:**
 ```bash
-# macOS / Linux
-curl -L https://raw.githubusercontent.com/renatocaliari/starhtml-skill/main/starhtml_check.py -o /usr/local/bin/starhtml-check && chmod +x /usr/local/bin/starhtml-check
-
-# Or to user local bin (no sudo)
-curl -L https://raw.githubusercontent.com/renatocaliari/starhtml-skill/main/starhtml_check.py -o ~/.local/bin/starhtml-check && chmod +x ~/.local/bin/starhtml-check
+starhtml-check --help || echo "Not installed"
 ```
 
-**Option B — Local download (per-project):**
+**Install if missing:**
 ```bash
-curl -O https://raw.githubusercontent.com/renatocaliari/starhtml-skill/main/starhtml_check.py
+# macOS / Linux - global install (recommended)
+curl -L https://raw.githubusercontent.com/renatocaliari/starhtml-skill/main/starhtml_check.py \
+  -o /usr/local/bin/starhtml-check && chmod +x /usr/local/bin/starhtml-check
+
+# Or user-local (no sudo required)
+curl -L https://raw.githubusercontent.com/renatocaliari/starhtml-skill/main/starhtml_check.py \
+  -o ~/.local/bin/starhtml-check && chmod +x ~/.local/bin/starhtml-check
+```
+
+**Verify installation:**
+```bash
+starhtml-check --version  # Should show help
 ```
 
 ### Updating
 
-Once installed globally, update to the latest version anytime:
+Once installed, update to the latest version anytime:
 
 ```bash
 starhtml-check --update
 ```
 
-This fetches the latest version from GitHub, creates a backup of your current file, and updates automatically.
+This fetches the latest version from GitHub, creates a backup (`.bak`), and updates automatically.
 
 ### Usage
 
 ```bash
-# If installed globally:
+# After generating StarHTML code, always run:
 starhtml-check component.py           # full analysis
 starhtml-check --summary f.py         # compact output (fewer tokens)
 starhtml-check --update               # check for updates and update
-
-# If downloaded locally:
-python starhtml_check.py component.py
-python starhtml_check.py --summary f.py
-python starhtml_check.py --update
 ```
 
 **Development Loop:** write → check → fix ERRORs → re-run → ✓ no issues
