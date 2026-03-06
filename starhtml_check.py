@@ -709,6 +709,19 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
 
 def check_regex(source: str, issues: list[Issue], lines: list[str]) -> None:
     """Regex-based checks that complement AST analysis."""
+    # E020: Direct Datastar CDN script — StarHTML manages Datastar automatically
+    datastar_cdn_pattern = re.compile(r'@getdatastar/datastar|datastar.*\.min\.js')
+    for i, line in enumerate(lines, 1):
+        if datastar_cdn_pattern.search(line):
+            issues.append(Issue(
+                level="ERROR",
+                line=i,
+                code="E020",
+                message="Direct Datastar CDN — StarHTML manages Datastar automatically, do not add manually",
+                original=line.strip(),
+                fix="Remove: StarHTML includes Datastar. Use: from starhtml import *"
+            ))
+    
     # E005: camelCase Signal name (includes PascalCase and camelCase)
     signal_name_pattern = re.compile(r'Signal\s*\(\s*["\']([a-zA-Z_][a-zA-Z0-9_]*)["\']')
     for i, line in enumerate(lines, 1):
