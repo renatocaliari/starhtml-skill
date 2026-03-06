@@ -444,6 +444,7 @@ For slot system: see `./reference/slots.md`
 | Form submits and reloads page | Missing `{"prevent": True}` | Add: `data_on_submit=(post("/api"), {"prevent": True})` |
 | SSE endpoint leaves UI in loading state | Missing `yield signals()` reset | Always end with: `yield signals(loading=False)` |
 | Signal value not updating in backend handler | Trying to read `signal.value` | Receive Signal as parameter: `def handler(req, my_sig: Signal)` |
+| **Direct Datastar import** | Importing `@getdatastar/datastar` manually | **Remove it** — StarHTML manages Datastar automatically |
 
 ---
 

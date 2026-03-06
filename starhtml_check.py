@@ -224,6 +224,16 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
         if node.module == "starhtml.plugins":
             for alias in node.names:
                 self._registered_plugins.add(alias.name)
+        # E020: Direct Datastar import — StarHTML manages Datastar automatically
+        if node.module and "datastar" in node.module and "starhtml" not in node.module:
+            self.issues.append(Issue(
+                level="ERROR",
+                line=node.lineno,
+                code="E020",
+                message="Direct Datastar import — StarHTML manages Datastar automatically, do not import",
+                original=self._get_line(node.lineno),
+                fix="Remove: StarHTML includes Datastar. Use: from starhtml import *"
+            ))
         self.generic_visit(node)
 
     def visit_FunctionDef(self, node: ast.FunctionDef):
