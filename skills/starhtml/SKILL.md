@@ -473,14 +473,13 @@ This fetches the latest version from GitHub, creates a backup of your current fi
 # If installed globally:
 starhtml_check component.py           # full analysis
 starhtml_check --summary f.py         # compact output (fewer tokens)
-starhtml_check --fix f.py             # auto-fix safe issues
 starhtml_check --help-llm             # full guide + all error codes
 starhtml_check --update               # check for updates and update
 
 # If downloaded locally:
 python starhtml_check.py component.py
 python starhtml_check.py --summary f.py
-python starhtml_check.py --fix f.py
+python starhtml_check.py --help-llm
 python starhtml_check.py --update
 ```
 

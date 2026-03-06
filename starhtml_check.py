@@ -6,7 +6,6 @@ Designed for LLM tool-call loops: minimal tokens, maximum signal.
 Usage:
   python starhtml_check.py
   python starhtml_check.py --code "..."
-  python starhtml_check.py --fix
   python starhtml_check.py --summary
   python starhtml_check.py --help-llm
   python starhtml_check.py --update
@@ -41,7 +40,6 @@ HELP_LLM = textwrap.dedent("""
 
 python starhtml_check.py           # full analysis
 python starhtml_check.py --summary f.py   # compact output (fewer tokens)
-python starhtml_check.py --fix f.py       # auto-fix safe issues
 python starhtml_check.py --code "..."     # analyze inline snippet
 python starhtml_check.py --help-llm       # this guide
 python starhtml_check.py --update         # check for updates and update
@@ -1255,21 +1253,6 @@ def check_post(analyzer: StarHTMLAnalyzer, issues: list[Issue]) -> None:
                 break
 
 
-def auto_fix(source: str) -> str:
-    """Apply safe automatic fixes."""
-    lines = source.splitlines()
-    fixed_lines = []
-    for line in lines:
-        stripped = line.lstrip()
-        # W003: wrap walrus := in parens
-        if re.match(r"^\w+\s*:=\s*Signal\s*\(", stripped) and not stripped.startswith("("):
-            indent = line[:len(line) - len(stripped)]
-            fixed_lines.append(indent + "(" + stripped + ")")
-        else:
-            fixed_lines.append(line)
-    return "\n".join(fixed_lines)
-
-
 def format_report(issues: list[Issue], analyzer: StarHTMLAnalyzer, filename: str, summary_only: bool = False) -> str:
     """Format the analysis report."""
     errors = [i for i in issues if i.level == "ERROR"]
@@ -1337,7 +1320,6 @@ def main():
     )
     parser.add_argument("file", nargs="?", help="File to analyze")
     parser.add_argument("--code", help="Analyze inline code snippet")
-    parser.add_argument("--fix", metavar="FILE", help="Auto-fix safe issues and print result")
     parser.add_argument("--summary", metavar="FILE", help="Compact output (fewer tokens)")
     parser.add_argument("--help-llm", action="store_true", help="Print LLM integration guide")
     parser.add_argument("--update", action="store_true", help="Check for updates and update to latest version from GitHub")
@@ -1349,16 +1331,6 @@ def main():
 
     if args.help_llm:
         print(HELP_LLM)
-        sys.exit(0)
-
-    if args.fix:
-        with open(args.fix, "r") as f:
-            source = f.read()
-        fixed = auto_fix(source)
-        print(fixed)
-        # Also run analysis on fixed code
-        report = analyze(fixed, args.fix, summary_only=True)
-        print("\n" + report, file=sys.stderr)
         sys.exit(0)
 
     if args.summary:
