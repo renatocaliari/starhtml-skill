@@ -117,6 +117,23 @@ curl -O https://raw.githubusercontent.com/renatocaliari/starhtml-skill/main/star
 
 ---
 
+## 🔄 Updating the Checker
+
+Once installed globally, update to the latest version anytime:
+
+```bash
+# Check for updates and install if available
+starhtml_check --update
+```
+
+This will:
+1. Fetch the latest version from GitHub
+2. Compare with your current version
+3. Create a backup of your current file (`.bak`)
+4. Update to the latest version automatically
+
+---
+
 ## 📋 Usage
 
 ```bash
@@ -125,11 +142,13 @@ starhtml_check component.py           # full analysis
 starhtml_check --summary f.py         # compact output
 starhtml_check --fix f.py             # auto-fix safe issues
 starhtml_check --help-llm             # full guide + all error codes
+starhtml_check --update               # check for updates and update
 
 # If downloaded locally:
 python starhtml_check.py component.py
 python starhtml_check.py --summary f.py
 python starhtml_check.py --fix f.py
+python starhtml_check.py --update
 ```
 
 **Loop:** write → check → fix ERRORs → re-run → ✓ no issues

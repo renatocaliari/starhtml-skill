@@ -4,281 +4,310 @@ starhtml-check — Static analyzer for StarHTML code.
 Designed for LLM tool-call loops: minimal tokens, maximum signal.
 
 Usage:
-    python starhtml_check.py <file.py>
-    python starhtml_check.py --code "..."
-    python starhtml_check.py --fix <file.py>
-    python starhtml_check.py --summary <file.py>
-    python starhtml_check.py --help-llm
+  python starhtml_check.py
+  python starhtml_check.py --code "..."
+  python starhtml_check.py --fix
+  python starhtml_check.py --summary
+  python starhtml_check.py --help-llm
+  python starhtml_check.py --update
 """
-
 import ast
 import re
 import sys
 import argparse
 import textwrap
-from dataclasses import dataclass, field
+import hashlib
+import shutil
+from pathlib import Path
+from dataclasses import dataclass
 from typing import Literal, Optional
 
 HELP_LLM = textwrap.dedent("""
-    # StarHTML Checker — LLM Integration Guide
+# StarHTML Checker — LLM Integration Guide
 
-    ## SEVERITY LEVELS (production-ready mindset)
+## SEVERITY LEVELS (production-ready mindset)
 
-    ### 🔴 ERROR (BLOCKER — do not ship)
-    - **Broken code**: SyntaxError, NameError, reactivity broken
-    - **Bugs**: UX issues, security risks, performance problems
-    - **Action**: Fix ALL before deploying — production must be reliable
+### 🔴 ERROR (BLOCKER — do not ship)
+- **Broken code**: SyntaxError, NameError, reactivity broken
+- **Bugs**: UX issues, security risks, performance problems
+- **Action**: Fix ALL before deploying — production must be reliable
 
-    ### 🟡 WARNING (REVIEW — may be intentional)
-    - **Code quality**: Style, conventions, naming
-    - **Potential issues**: Review to ensure it's intentional
-    - **Action**: Review each case, document if keeping intentionally
+### 🟡 WARNING (REVIEW — may be intentional)
+- **Code quality**: Style, conventions, naming
+- **Potential issues**: Review to ensure it's intentional
+- **Action**: Review each case, document if keeping intentionally
 
-    ## COMMANDS
+## COMMANDS
 
-        python starhtml_check.py <file.py>      # full analysis
-        python starhtml_check.py --summary f.py # compact output (fewer tokens)
-        python starhtml_check.py --fix f.py     # auto-fix safe issues
-        python starhtml_check.py --code "..."   # analyze inline snippet
-        python starhtml_check.py --help-llm     # this guide
+python starhtml_check.py           # full analysis
+python starhtml_check.py --summary f.py   # compact output (fewer tokens)
+python starhtml_check.py --fix f.py       # auto-fix safe issues
+python starhtml_check.py --code "..."     # analyze inline snippet
+python starhtml_check.py --help-llm       # this guide
+python starhtml_check.py --update         # check for updates and update
 
-    ## LLM WORKFLOW
+## UPDATING
 
-    1. **Write** — Generate StarHTML component
-    2. **Check** — Run: `python starhtml_check.py file.py`
-    3. **Fix ERRORs** — Address all ERROR-level issues first
-    4. **Re-run** — Repeat until no errors, then fix WARNINGs
+python starhtml_check.py --update
+# Checks GitHub for latest version, creates backup, updates automatically
 
-    ## OUTPUT FORMAT
+## LLM WORKFLOW
 
-    - **ERRORS** — must fix, will break runtime or reactivity
-    - **WARNINGS** — should fix, may cause subtle bugs or UX issues
-    - **SUMMARY** — signal inventory + total counts
+1. **Write** — Generate StarHTML component
+2. **Check** — Run: `python starhtml_check.py file.py`
+3. **Fix ERRORs** — Address all ERROR-level issues first
+4. **Re-run** — Repeat until no errors, then fix WARNINGs
 
-    ## ERROR CODES (must fix)
+## OUTPUT FORMAT
 
-    - **E001** — positional arg after keyword → caught by Python parser
-      GOT:  Div(cls="container", "Hello")
-      FIX:  Div("Hello", cls="container")
-      Note: This is a Python SyntaxError — your editor/IDE should catch it
+- **ERRORS** — must fix, will break runtime or reactivity
+- **WARNINGS** — should fix, may cause subtle bugs or UX issues
+- **SUMMARY** — signal inventory + total counts
 
-    - **E002** — f-string in reactive attribute → static, won't update in browser
-      GOT:  data_text=f"Count: {counter}"
-      FIX:  data_text="Count: " + counter
-            data_text=f("Count: {c}", c=counter)  # for 3+ signals
+## ERROR CODES (must fix)
 
-    - **E003** — f-string URL in HTTP action with Signal variable → static, won't update
-      GOT:  data_on_click=get(f"/api/{item_id}")  # where item_id is a Signal
-      FIX:  data_on_click=get("/api/item", id=item_id_sig)
-      NOTE: Does NOT flag if variable is a function parameter (not a Signal)
-            Does NOT flag dict.get() like data.get(f"key_{id}")
+- **E001** — positional arg after keyword → caught by Python parser
+  GOT: Div(cls="container", "Hello")
+  FIX: Div("Hello", cls="container")
+  Note: This is a Python SyntaxError — your editor/IDE should catch it
 
-    - **E004** — special chars (`:` `/` `[` `]`) in `data_class_*` keyword name → Python parse error
-      GOT:  data_class_hover:bg-blue=sig
-      FIX:  data_attr_class=sig.if_("hover:bg-blue-500", "")
+- **E002** — f-string in reactive attribute → static, won't update in browser
+  GOT: data_text=f"Count: {counter}"
+  FIX: data_text="Count: " + counter
+       data_text=f("Count: {c}", c=counter) # for 3+ signals
 
-    - **E005** — camelCase Signal name → must be snake_case
-      GOT:  Signal("myCounter", 0)
-      FIX:  Signal("my_counter", 0)
-
-    - **E006** — `f()` helper used without import → NameError at runtime
-      GOT:  (uses f() but no import)
-      FIX:  from starhtml.datastar import f
-
-    - **E007** — `data_attr_class` and `data_attr_cls` on same element → different behaviors
-      GOT:  Div(data_attr_class=..., data_attr_cls=...)
-      FIX:  Use only one (data_attr_class replaces, data_attr_cls adds)
-
-    - **E008** — walrus `:=` Signal without outer parentheses → won't register as positional arg, breaks reactivity
-      GOT:  name := Signal("name", "")
-      FIX:  (name := Signal("name", ""))
-      NOTE: Without parens, Signal is not passed to parent element!
-
-    ## WARNING CODES (review — may be intentional)
-
-    - **W003** — 3+ signals with `&` operator — prefer `all()` for readability
-      GOT:  a & b & c  # 3 signals chained
-      FIX:  all(a, b, c)
-
-    - **W008** — Signal name too short → prefer descriptive snake_case names
-      GOT:  Signal("x", 0)
-      FIX:  Signal("counter", 0)
-
-    - **W012** — Signal with empty name → use descriptive snake_case names
-      GOT:  Signal("", 0)
-      FIX:  Signal("counter", 0)
-
-    - **W015** — `delete()` HTTP action without confirmation → accidental data loss risk
-      GOT:  data_on_click=delete("/api/item", id=123)
-      FIX:  Add confirmation: data_on_click=confirm("Delete?").then(delete(...))
-
-    - **W016** — Signal used but not defined → will cause runtime error
-      GOT:  data_text=count  # count was never defined
-      FIX:  Define signal: (count := Signal("count", 0))
-
-    - **W017** — Computed Signal detected (expression as initial value, auto-updates)
-      GOT:  (doubled := Signal("doubled", count * 2))
-
-    - **W018** — `_ref_only=True` Signal — correctly excluded from `data-signals`
-
-    - **W019** — f-string in `elements()` selector — verify selector is static
-      GOT:  elements(content, f"#todo-{id}")
-
-    - **W020** — `elements()` replace-mode without explicit `id` — element may not be targetable later
-      GOT:  elements(Div(cls="content"), "#target")
-      FIX:  elements(Div(id="target", cls="content"), "#target")
-      NOTE: No warning if element has `id=`, uses variable/function return, or uses append/prepend mode
-
-    - **W021** — `switch()` used for CSS classes — use `collect()` to combine multiple classes
-      GOT:  data_attr_class=switch([(is_active, "active")], default="")
-      FIX:  data_attr_class=collect([(is_active, "active")])
-
-    - **W022** — `collect()` used for exclusive logic — use `switch()` or `if_()` for single result
-      GOT:  data_text=collect([(is_valid, "OK", "Error")])
-      FIX:  data_text=status.if_("Active", "Inactive")
-
-    - **W023** — `.then()` without conditional signal — verify a boolean signal is used
-      GOT:  data_on_click=then(post("/api/save"))
-      FIX:  data_on_click=is_valid.then(post("/api/save"))
-
-    - **W024** — `data_effect` without `.set()` or `.then()` — use valid patterns
-      GOT:  data_effect=price * quantity
-      FIX:  data_effect=total.set(price * quantity)   # for assignment
-            data_effect=trigger.then(get("/api"))    # for conditional execution (OK!)
-
-    - **W025** — Component function without `**kwargs` — limits pass-through attributes
-      GOT:  def Modal(body_content):
-      FIX:  def Modal(body_content, **kwargs):
-
-    - **W026** — `f()` helper with < 3 signals — prefer `+` operator for 1-2 signals
-      GOT:  f("Hello {name}", name=username)  # only 1 signal
-      FIX:  "Hello " + username  (saves tokens)
-
-    ## ERROR CODES (BUGS — broken code, do not ship)
-
-    - **E001** — positional arg after keyword → caught by Python parser
-      GOT:  Div(cls="container", "Hello")
-      FIX:  Div("Hello", cls="container")
-
-    - **E002** — f-string in reactive attribute → static, won't update in browser
-      GOT:  data_text=f"Count: {counter}"
-      FIX:  data_text="Count: " + counter
-
-    - **E003** — f-string URL in HTTP action → Python-static, signal value not reactive
-      GOT:  data_on_click=get(f"/api/{item_id}")
-      FIX:  data_on_click=get("/api/item", id=item_id_sig)
-
-    - **E004** — special chars in `data_class_*` keyword → Python parse error
-      GOT:  data_class_hover:bg-blue=sig
-      FIX:  data_attr_class=sig.if_("hover:bg-blue-500", "")
-
-    - **E005** — camelCase Signal name → must be snake_case
-      GOT:  Signal("myCounter", 0)
-      FIX:  Signal("my_counter", 0)
-
-    - **E006** — `f()` helper used without import → NameError at runtime
-      GOT:  (uses f() but no import)
-      FIX:  from starhtml.datastar import f
-
-    - **E007** — `data_attr_class` and `data_attr_cls` on same element → different behaviors
-      GOT:  Div(data_attr_class=..., data_attr_cls=...)
-      FIX:  Use only one
-
-    - **E008** — walrus `:=` Signal without outer parens → breaks reactivity
-      GOT:  count := Signal("count", 0)
-      FIX:  (count := Signal("count", 0))
-
-    - **E009** — `data_show` without flash prevention → element flashes before JS loads
-      GOT:  Div("content", data_show=is_open)
-      FIX:  Div("content", style="display:none", data_show=is_open)
-
-    - **E010** — form submit without `is_valid` guard → submits invalid data
-      GOT:  data_on_submit=(post("/api/save"), {"prevent": True})
-      FIX:  data_on_submit=(is_valid.then(post("/api/save")), {"prevent": True})
-
-    - **E011** — `data_on_scroll`/`data_on_input` without throttle/debounce → performance bug
-      GOT:  data_on_scroll=handler
-      FIX:  data_on_scroll=(handler, {"throttle": 16})
-
-    - **E012** — `@sse` endpoint without `yield signals()` reset → client state not cleaned up
-      GOT:  @sse def fn(): yield elements(...)
-      FIX:  @sse def fn(): yield elements(...); yield signals(...)
-
-    - **E013** — `Icon()` without explicit size → inherits 1em from font-size
-      GOT:  Icon("lucide:home")
-      FIX:  Icon("lucide:home", size=24)
-
-    - **E014** — `js()` raw JavaScript → potential security risk
-      GOT:  js("doSomething(" + user_input + ")")
-      FIX:  (item := Signal("item", user_input)); js("doSomething($item)")
-
-    - **E015** — Plugin data attribute used without plugin registration
-      GOT:  Div(data_persist=theme)  # but no plugin imported
-      FIX:  from starhtml.plugins import persist; app.register(persist)
-
-    - **E016** — `data_on_submit` with `post()` without `{"prevent": True}` — form reloads page
-      GOT:  data_on_submit=(post("/api/save"), {"prevent": False})
-      FIX:  data_on_submit=(post("/api/save"), {"prevent": True})
-
-    - **E017** — `Signal.value` access — Signals don't have .value attribute
-      GOT:  todos.value.append(item)
-      FIX:  Use Python variable: todos_data = []  # not Signal
-      NOTE: Signals are reactive state references, NOT data containers
-
-    - **E018** — `len(signal)` — Signals don't support len()
-      GOT:  len(todos)  # where todos is a Signal
-      FIX:  Use Python variable: todos_data = []; len(todos_data)
-
-    - **E019** — `signals()` with positional arguments — use keyword arguments
-      GOT:  yield signals(count, status)
-      FIX:  yield signals(count=count, status=status)
-
-    ## WARNING CODES (review — may be intentional)
-
-    - **W021** — `switch()` used for CSS classes — use `collect()` to combine multiple classes
-      GOT:  data_attr_class=switch([(is_active, "active")], default="")
-      FIX:  data_attr_class=collect([(is_active, "active")])
-
-    - **W022** — `collect()` used for exclusive logic — use `switch()` or `if_()` for single result
-      GOT:  data_text=collect([(is_valid, "OK", "Error")])
-      FIX:  data_text=status.if_("Active", "Inactive")
-
-    - **W023** — `.then()` without conditional signal — verify a boolean signal is used
-      GOT:  data_on_click=then(post("/api/save"))
-      FIX:  data_on_click=is_valid.then(post("/api/save"))
-
-    - **W024** — `data_effect` without `.set()` — use `signal.set(expression)` for side effects
-      GOT:  data_effect=price * quantity
-      FIX:  data_effect=total.set(price * quantity)
-
-    - **W025** — Component function without `**kwargs` — limits pass-through attributes
-      GOT:  def Modal(body_content):
-      FIX:  def Modal(body_content, **kwargs):
-
-    - **W026** — `f()` helper with < 3 signals — prefer `+` operator for 1-2 signals
-      GOT:  f("Hello {name}", name=username)  # only 1 signal
-      FIX:  "Hello " + username  (saves tokens)
-
-    - **W027** — File > 400 lines — consider splitting into smaller modules
-      GOT:  File has 450 lines
-      FIX:  Split into components.py, routes.py, handlers.py
-
-    - **W028** — Deep nesting (>3 levels) — extract to sub-component for better LoB
-      GOT:  Div(Div(Div(Div(...))))  # 4 levels
-      FIX:  Extract inner Divs to separate component function
-
-    - **W029** — Signal not used in backend without `_` prefix — indicate frontend-only
-      GOT:  (counter := Signal("counter", 0))  # never sent to backend
-      FIX:  (_counter := Signal("_counter", 0))
-
-    - **W030** — js() that StarHTML can handle — LoB violation
-      GOT:  js("element.classList.add('active')")
-      FIX:  data_attr_class=is_active.if_("active", "")
-
-    - **W003** — 3+ signals with `&` operator — prefer `all()` for readability
-      GOT:  a & b & c  # 3 signals chained
-      FIX:  all(a, b, c)
+- **E003** — f-string URL in HTTP action with Signal variable → static, won't update
+  GOT: data_on_click=get(f"/api/{item_id}") # where item_id is a Signal
+  FIX: data_on_click=get("/api/item", id=item_id_sig)
+  NOTE: Does NOT flag if variable is a function parameter (not a Signal)
+        Does NOT flag dict.get() like data.get(f"key_{id}")
+
+- **E004** — special chars (`:` `/` `[` `]`) in `data_class_*` keyword name → Python parse error
+  GOT: data_class_hover:bg-blue=sig
+  FIX: data_attr_class=sig.if_("hover:bg-blue-500", "")
+
+- **E005** — camelCase Signal name → must be snake_case
+  GOT: Signal("myCounter", 0)
+  FIX: Signal("my_counter", 0)
+
+- **E006** — `f()` helper used without import → NameError at runtime
+  GOT: (uses f() but no import)
+  FIX: from starhtml.datastar import f
+
+- **E007** — `data_attr_class` and `data_attr_cls` on same element → different behaviors
+  GOT: Div(data_attr_class=..., data_attr_cls=...)
+  FIX: Use only one (data_attr_class replaces, data_attr_cls adds)
+
+- **E008** — walrus `:=` Signal without outer parentheses → won't register as positional arg, breaks reactivity
+  GOT: name := Signal("name", "")
+  FIX: (name := Signal("name", ""))
+  NOTE: Without parens, Signal is not passed to parent element!
+
+## WARNING CODES (review — may be intentional)
+
+- **W003** — 3+ signals with `&` operator — prefer `all()` for readability
+  GOT: a & b & c  # 3 signals chained
+  FIX: all(a, b, c)
+
+- **W008** — Signal name too short → prefer descriptive snake_case names
+  GOT: Signal("x", 0)
+  FIX: Signal("counter", 0)
+
+- **W012** — Signal with empty name → use descriptive snake_case names
+  GOT: Signal("", 0)
+  FIX: Signal("counter", 0)
+
+- **W015** — `delete()` HTTP action without confirmation → accidental data loss risk
+  GOT: data_on_click=delete("/api/item", id=123)
+  FIX: Add confirmation: data_on_click=confirm("Delete?").then(delete(...))
+
+- **W016** — Signal used but not defined → will cause runtime error
+  GOT: data_text=count  # count was never defined
+  FIX: Define signal: (count := Signal("count", 0))
+
+- **W017** — Computed Signal detected (expression as initial value, auto-updates)
+  GOT: (doubled := Signal("doubled", count * 2))
+
+- **W018** — `_ref_only=True` Signal — correctly excluded from `data-signals`
+
+- **W019** — f-string in `elements()` selector — verify selector is static
+  GOT: elements(content, f"#todo-{id}")
+
+- **W020** — `elements()` replace-mode without explicit `id` — element may not be targetable later
+  GOT: elements(Div(cls="content"), "#target")
+  FIX: elements(Div(id="target", cls="content"), "#target")
+  NOTE: No warning if element has `id=`, uses variable/function return, or uses append/prepend mode
+
+- **W021** — `switch()` used for CSS classes — use `collect()` to combine multiple classes
+  GOT: data_attr_class=switch([(is_active, "active")], default="")
+  FIX: data_attr_class=collect([(is_active, "active")])
+
+- **W022** — `collect()` used for exclusive logic — use `switch()` or `if_()` for single result
+  GOT: data_text=collect([(is_valid, "OK", "Error")])
+  FIX: data_text=status.if_("Active", "Inactive")
+
+- **W023** — `.then()` without conditional signal — verify a boolean signal is used
+  GOT: data_on_click=then(post("/api/save"))
+  FIX: data_on_click=is_valid.then(post("/api/save"))
+
+- **W024** — `data_effect` without `.set()` or `.then()` — use valid patterns
+  GOT: data_effect=price * quantity
+  FIX: data_effect=total.set(price * quantity)  # for assignment
+       data_effect=trigger.then(get("/api"))    # for conditional execution (OK!)
+
+- **W025** — Component function without `**kwargs` — limits pass-through attributes
+  GOT: def Modal(body_content):
+  FIX: def Modal(body_content, **kwargs):
+
+- **W026** — `f()` helper with < 3 signals — prefer `+` operator for 1-2 signals
+  GOT: f("Hello {name}", name=username)  # only 1 signal
+  FIX: "Hello " + username  (saves tokens)
+
+## ERROR CODES (BUGS — broken code, do not ship)
+
+- **E001** — positional arg after keyword → caught by Python parser
+- **E002** — f-string in reactive attribute → static, won't update in browser
+- **E003** — f-string URL in HTTP action → Python-static, signal value not reactive
+- **E004** — special chars in `data_class_*` keyword → Python parse error
+- **E005** — camelCase Signal name → must be snake_case
+- **E006** — `f()` helper used without import → NameError at runtime
+- **E007** — `data_attr_class` and `data_attr_cls` on same element → different behaviors
+- **E008** — walrus `:=` Signal without outer parens → breaks reactivity
+- **E009** — `data_show` without flash prevention → element flashes before JS loads
+- **E010** — form submit without `is_valid` guard → submits invalid data
+- **E011** — `data_on_scroll`/`data_on_input` without throttle/debounce → performance bug
+- **E012** — `@sse` endpoint without `yield signals()` reset → client state not cleaned up
+- **E013** — `Icon()` without explicit size → inherits 1em from font-size
+- **E014** — `js()` raw JavaScript → potential security risk
+- **E015** — Plugin data attribute used without plugin registration
+- **E016** — `data_on_submit` with `post()` without `{"prevent": True}` — form reloads page
+- **E017** — `Signal.value` access — Signals don't have .value attribute
+- **E018** — `len(signal)` — Signals don't support len()
+- **E019** — `signals()` with positional arguments — use keyword arguments
+
+## WARNING CODES (review — may be intentional)
+
+- **W003** — 3+ signals with `&` operator — prefer `all()` for readability
+- **W008** — Signal name too short
+- **W012** — Signal with empty name
+- **W015** — `delete()` without confirmation
+- **W016** — Signal used but not defined
+- **W017** — Computed Signal detected
+- **W018** — `_ref_only=True` Signal
+- **W019** — f-string in `elements()` selector
+- **W020** — `elements()` replace-mode without explicit `id`
+- **W021** — `switch()` for CSS classes — use `collect()`
+- **W022** — `collect()` for exclusive logic — use `switch()` or `if_()`
+- **W023** — `.then()` without conditional signal
+- **W024** — `data_effect` without `.set()`
+- **W025** — Component function without `**kwargs`
+- **W026** — `f()` helper with < 3 signals
+- **W027** — File > 400 lines — consider splitting
+- **W028** — Deep nesting (>3 levels) — extract to sub-component
+- **W029** — Signal not used in backend without `_` prefix
+- **W030** — js() that StarHTML can handle — LoB violation
 """)
+
+GITHUB_RAW_URL = "https://raw.githubusercontent.com/renatocaliari/starhtml-skill/main/starhtml_check.py"
+
+def get_checker_location() -> Path:
+    """Get the path to the current checker script."""
+    return Path(__file__).resolve()
+
+def is_globally_installed() -> bool:
+    """Check if checker is installed in a global bin directory."""
+    loc = get_checker_location()
+    global_paths = [
+        Path("/usr/local/bin"),
+        Path("/usr/bin"),
+        Path.home() / ".local" / "bin",
+    ]
+    return any(loc.is_relative_to(p) for p in global_paths if p.exists())
+
+def get_latest_checker() -> str:
+    """Fetch the latest checker from GitHub."""
+    try:
+        import urllib.request
+        with urllib.request.urlopen(GITHUB_RAW_URL, timeout=10) as response:
+            return response.read().decode("utf-8")
+    except Exception as e:
+        print(f"ERROR: Failed to fetch latest version from GitHub: {e}")
+        sys.exit(1)
+
+def check_for_update() -> tuple[bool, str]:
+    """Check if a newer version is available on GitHub."""
+    current_path = get_checker_location()
+    try:
+        with open(current_path, "r") as f:
+            current_content = f.read()
+    except Exception as e:
+        print(f"ERROR: Failed to read current checker: {e}")
+        sys.exit(1)
+
+    latest_content = get_latest_checker()
+
+    current_hash = hashlib.sha256(current_content.encode()).hexdigest()
+    latest_hash = hashlib.sha256(latest_content.encode()).hexdigest()
+
+    if current_hash == latest_hash:
+        return False, "✓ You already have the latest version"
+
+    # Count lines to give a rough idea of changes
+    current_lines = len(current_content.splitlines())
+    latest_lines = len(latest_content.splitlines())
+    diff = latest_lines - current_lines
+    diff_str = f"+{diff}" if diff > 0 else str(diff)
+
+    return True, f"Update available ({diff_str} lines)"
+
+def update_checker(interactive: bool = True) -> None:
+    """Update the checker to the latest version from GitHub."""
+    current_path = get_checker_location()
+
+    print(f"Checker location: {current_path}")
+
+    # Check for update
+    has_update, message = check_for_update()
+    print(message)
+
+    if not has_update:
+        sys.exit(0)
+
+    # Fetch latest version
+    print("\nFetching latest version from GitHub...")
+    latest_content = get_latest_checker()
+
+    # Create backup
+    backup_path = current_path.with_suffix(current_path.suffix + ".bak")
+    try:
+        shutil.copy2(current_path, backup_path)
+        print(f"Backup created: {backup_path}")
+    except Exception as e:
+        print(f"WARNING: Failed to create backup: {e}")
+
+    # Write new version
+    try:
+        with open(current_path, "w") as f:
+            f.write(latest_content)
+        print(f"✓ Updated {current_path}")
+
+        # Make executable (Unix-like systems)
+        try:
+            current_path.chmod(current_path.stat().st_mode | 0o111)
+        except Exception:
+            pass
+
+        print("\n✓ Update complete! Run 'starhtml_check --update' again to check for future updates.")
+    except Exception as e:
+        print(f"ERROR: Failed to write new version: {e}")
+        # Restore backup if update failed
+        if backup_path.exists():
+            try:
+                shutil.copy2(backup_path, current_path)
+                print("Restored backup successfully")
+            except Exception:
+                pass
+        sys.exit(1)
 
 
 @dataclass
@@ -291,13 +320,13 @@ class Issue:
     fix: str = ""
 
     def __str__(self):
-        lines = [f"  L{self.line} [{self.code}] {self.message}"]
+        lines = [f" L{self.line} [{self.code}] {self.message}"]
         if self.original:
-            lines.append(f"    GOT:  {self.original.strip()}")
+            lines.append(f" GOT: {self.original.strip()}")
         if self.fix:
             fix_lines = self.fix.strip().split("\n")
             for i, fl in enumerate(fix_lines):
-                prefix = "    FIX:  " if i == 0 else "          "
+                prefix = " FIX: " if i == 0 else "      "
                 lines.append(prefix + fl)
         return "\n".join(lines)
 
@@ -320,9 +349,12 @@ PLUGIN_DATA_ATTRS = {
     "drag": {"data_drag", "data_drop_zone"},
     "canvas": {"data_canvas"},
     "position": {"data_position"},
-    "motion": {"data_motion", "data_motion_enter", "data_motion_exit", "data_motion_hover", 
-               "data_motion_press", "data_motion_in_view", "data_motion_scroll_link", 
-               "data_on_motion_start", "data_on_motion_complete", "data_on_motion_cancel"},
+    "motion": {
+        "data_motion", "data_motion_enter", "data_motion_exit",
+        "data_motion_hover", "data_motion_press", "data_motion_in_view",
+        "data_motion_scroll_link", "data_on_motion_start",
+        "data_on_motion_complete", "data_on_motion_cancel"
+    },
     "markdown": {"data_markdown"},
     "katex": {"data_katex"},
     "mermaid": {"data_mermaid"},
@@ -392,20 +424,24 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
         returns_html = False
         for child in ast.walk(node):
             if isinstance(child, ast.Call):
-                if isinstance(child.func, ast.Name) and child.func.id in {"Div", "Span", "Button", "Input", "Form", "Label", "Select", "Textarea", "Ul", "Ol", "Li", "Table", "Tr", "Td", "Th", "H1", "H2", "H3", "H4", "H5", "H6", "P", "A", "Img", "Canvas", "Svg", "Nav", "Header", "Footer", "Main", "Section", "Article", "Aside"}:
+                if isinstance(child.func, ast.Name) and child.func.id in {
+                    "Div", "Span", "Button", "Input", "Form", "Label",
+                    "Select", "Textarea", "Ul", "Ol", "Li", "Table", "Tr",
+                    "Td", "Th", "H1", "H2", "H3", "H4", "H5", "H6", "P",
+                    "A", "Img", "Canvas", "Svg", "Nav", "Header", "Footer",
+                    "Main", "Section", "Article", "Aside"
+                }:
                     returns_html = True
                     break
         # Only track as component if it returns HTML and is not an SSE handler or utility function
         # SSE handlers typically have @sse decorator or yield statements
         is_sse_handler = any(name == node.name for name, _ in self._sse_functions)
         has_yield = any(isinstance(child, ast.Yield) for child in ast.walk(node))
-        is_utility = node.name.startswith("_") or "todo" in node.name.lower() and "render" in node.name.lower()
-        
+        is_utility = node.name.startswith("_") or ("todo" in node.name.lower() and "render" in node.name.lower())
         if returns_html and not is_sse_handler and not has_yield and not is_utility:
             self._component_functions.append((node.name, node.lineno, has_kwargs))
-            # Calculate nesting depth for this component
-            self._calculate_nesting_depth(node)
-        
+        # Calculate nesting depth for this component
+        self._calculate_nesting_depth(node)
         for decorator in node.decorator_list:
             is_sse = False
             # Handle @sse, @app.sse, and aliased imports
@@ -439,7 +475,7 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                         code="E018",
                         message=f"`len({arg_name})` — Signals don't support len(); use Python variable for data",
                         original=self._get_line(node.lineno),
-                        fix=f"Store data in Python: {arg_name}_data = []  # then len({arg_name}_data)"
+                        fix=f"Store data in Python: {arg_name}_data = [] # then len({arg_name}_data)"
                     ))
 
         # E019: signals() with positional arguments
@@ -451,7 +487,6 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                 if i == 0 and isinstance(arg, ast.Constant) and isinstance(arg.value, bool):
                     continue  # Valid: signals(True) or signals(False)
                 positional_args.append(arg)
-            
             if positional_args:
                 self.issues.append(Issue(
                     level="ERROR",
@@ -459,7 +494,7 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                     code="E019",
                     message="`signals()` with positional arguments — use keyword arguments only",
                     original=self._get_line(node.lineno),
-                    fix="Use kwargs: yield signals(count=1, status='done')  # NOT signals(count, status)"
+                    fix="Use kwargs: yield signals(count=1, status='done') # NOT signals(count, status)"
                 ))
 
         # E001: positional arg after keyword — SyntaxError
@@ -489,7 +524,6 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                 # Check if this is a method call (e.g., data.get()) vs standalone function
                 # data.get() is a dict method, not HTTP action - FALSE POSITIVE if flagged
                 is_method_call = isinstance(node.func, ast.Attribute)
-                
                 if is_method_call:
                     # This is like data.get() - a dict method, not HTTP action
                     # Skip the check - it's a false positive
@@ -498,10 +532,8 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                     # Standalone HTTP action (get, post, etc.) - check if f-string uses a Signal
                     # Get the variable names used in the f-string
                     fstring_var_names = self._extract_fstring_variables(node.args[0])
-                    
                     # Check if any variable in the f-string is a Signal
                     uses_signal = any(var_name in self._defined_signals for var_name in fstring_var_names)
-                    
                     if uses_signal:
                         # Variable is a Signal - this is a real error
                         self.issues.append(Issue(
@@ -650,16 +682,17 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                         message="Computed Signal detected (expression as initial value, auto-updates)",
                         original=self._get_line(node.lineno)
                     ))
-            # I004: _ref_only=True
-            for kw in node.keywords:
-                if kw.arg == "_ref_only" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
-                    self.issues.append(Issue(
-                        level="WARNING",
-                        line=node.lineno,
-                        code="W018",
-                        message="`_ref_only=True` Signal — correctly excluded from `data-signals` HTML output",
-                        original=self._get_line(node.lineno)
-                    ))
+
+        # I004: _ref_only=True
+        for kw in node.keywords:
+            if kw.arg == "_ref_only" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
+                self.issues.append(Issue(
+                    level="WARNING",
+                    line=node.lineno,
+                    code="W018",
+                    message="`_ref_only=True` Signal — correctly excluded from `data-signals` HTML output",
+                    original=self._get_line(node.lineno)
+                ))
 
         # W015: delete() HTTP action without confirmation (UX risk)
         if func_name == "delete":
@@ -680,7 +713,8 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                     code="W019",
                     message="f-string in elements() selector — verify selector is static or use signal concatenation",
                     original=self._get_line(node.lineno),
-                    fix='If dynamic: elements(content, "#target-" + id_sig)\nIf static: elements(content, "#todo-123")  # OK'
+                    fix='If dynamic: elements(content, "#target-" + id_sig)\n'
+                        'If static: elements(content, "#todo-123") # OK'
                 ))
 
         # Track plugin data attributes usage
@@ -792,7 +826,7 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                     code="E017",
                     message=f"`{node.value.id}.value` — Signals don't have .value attribute; use Python variables for data",
                     original=self._get_line(node.lineno),
-                    fix=f"Store data in Python: {node.value.id}_data = []  # not Signal"
+                    fix=f"Store data in Python: {node.value.id}_data = [] # not Signal"
                 ))
         self.generic_visit(node)
 
@@ -800,25 +834,22 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
         """Calculate maximum nesting depth of HTML elements in a node."""
         if current_depth > max_depth:
             return current_depth
-        
-        html_elements = {"Div", "Span", "Button", "Input", "Form", "Label", "Select", 
-                        "Textarea", "Ul", "Ol", "Li", "Table", "Tr", "Td", "Th", 
-                        "H1", "H2", "H3", "H4", "H5", "H6", "P", "A", "Img", 
-                        "Canvas", "Svg", "Nav", "Header", "Footer", "Main", 
-                        "Section", "Article", "Aside", "Card", "Modal"}
-        
+        html_elements = {
+            "Div", "Span", "Button", "Input", "Form", "Label",
+            "Select", "Textarea", "Ul", "Ol", "Li", "Table", "Tr",
+            "Td", "Th", "H1", "H2", "H3", "H4", "H5", "H6", "P",
+            "A", "Img", "Canvas", "Svg", "Nav", "Header", "Footer",
+            "Main", "Section", "Article", "Aside", "Card", "Modal"
+        }
         max_child_depth = current_depth
-        
         if isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name) and node.func.id in html_elements:
                 current_depth += 1
                 if current_depth > 5:  # Threshold for warning (was 3)
                     self._deep_nesting_locations.append((node.lineno, current_depth))
-        
-        for child in ast.iter_child_nodes(node):
-            child_depth = self._calculate_nesting_depth(child, current_depth, max_depth)
-            max_child_depth = max(max_child_depth, child_depth)
-        
+            for child in ast.iter_child_nodes(node):
+                child_depth = self._calculate_nesting_depth(child, current_depth, max_depth)
+                max_child_depth = max(max_child_depth, child_depth)
         return max_child_depth
 
     def _get_line(self, lineno: int) -> str:
@@ -857,7 +888,6 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
 
 def check_regex(source: str, issues: list[Issue], lines: list[str]) -> None:
     """Regex-based checks that complement AST analysis."""
-
     # E005: camelCase Signal name (includes PascalCase and camelCase)
     signal_name_pattern = re.compile(r'Signal\s*\(\s*["\']([a-zA-Z_][a-zA-Z0-9_]*)["\']')
     for i, line in enumerate(lines, 1):
@@ -870,7 +900,6 @@ def check_regex(source: str, issues: list[Issue], lines: list[str]) -> None:
             is_pascal_case = bool(re.match(r"^[A-Z][a-zA-Z0-9]*$", name))  # PascalCase puro
             is_snake_case = "_" in name and name.islower()  # snake_case
             is_underscore_prefix = name.startswith("_") and (name[1:].islower() or "_" in name[1:])
-            
             if (has_camel or is_pascal_case) and not is_snake_case and not is_underscore_prefix:
                 snake_case = re.sub(r"([a-z])([A-Z])", r"\1_\2", name).lower()
                 issues.append(Issue(
@@ -947,14 +976,12 @@ def check_regex(source: str, issues: list[Issue], lines: list[str]) -> None:
         stripped = line.strip()
         if stripped.startswith('"""') or stripped.startswith("'''") or stripped.startswith("#"):
             continue
-            
         if "elements(" in line:
             # Check if this line or next few lines have append/prepend
             context_lines = "\n".join(lines[i-1:min(i+3, len(lines))])
             has_append_prepend = any(x in context_lines for x in ["\"append\"", "\"prepend\"", "'append'", "'prepend'"])
             if has_append_prepend:
                 continue  # append/prepend mode doesn't need id matching
-
             # Check if element has explicit id attribute
             # Pattern 1: Div(id="...", ...) or similar with literal id
             has_explicit_id = bool(re.search(r'elements\s*\(\s*\w+\s*\([^)]*id\s*=\s*["\'][^"\']+["\']', line))
@@ -967,7 +994,6 @@ def check_regex(source: str, issues: list[Issue], lines: list[str]) -> None:
             # In this case, assume developer knows what they're doing
             has_variable_element = bool(re.search(r'elements\s*\(\s*[a-z_][a-z0-9_]*\s*\(', line, re.IGNORECASE))
             has_variable_element = has_variable_element or bool(re.search(r'elements\s*\(\s*[a-z_][a-z0-9_]*\s*,', line, re.IGNORECASE))
-
             if not has_explicit_id and not has_variable_element:
                 issues.append(Issue(
                     level="WARNING",
@@ -981,7 +1007,6 @@ def check_regex(source: str, issues: list[Issue], lines: list[str]) -> None:
 
 def check_post(analyzer: StarHTMLAnalyzer, issues: list[Issue]) -> None:
     """Post-AST checks that require full context."""
-
     # E006: f() used without import
     if analyzer._uses_f_helper and not analyzer._has_f_import:
         for lineno in analyzer._uses_f_helper:
@@ -1056,7 +1081,7 @@ def check_post(analyzer: StarHTMLAnalyzer, issues: list[Issue]) -> None:
                 level="WARNING",
                 line=lineno,
                 code="W021",
-                    message="`switch()` used for CSS classes — use `collect()` to combine multiple classes",
+                message="`switch()` used for CSS classes — use `collect()` to combine multiple classes",
                 original=line.strip(),
                 fix="Use collect() for CSS classes: data_attr_class=collect([(cond1, 'class1'), (cond2, 'class2')])"
             ))
@@ -1085,7 +1110,7 @@ def check_post(analyzer: StarHTMLAnalyzer, issues: list[Issue]) -> None:
                 code="W026",
                 message=f"`f()` helper with {signal_count} signal(s) — prefer `+` operator for 1-2 signals",
                 original=line.strip(),
-                fix='Use + operator: "Label: " + signal  (saves tokens, simpler code)'
+                fix='Use + operator: "Label: " + signal (saves tokens, simpler code)'
             ))
 
     # W023: .then() without conditional signal
@@ -1127,13 +1152,11 @@ def check_post(analyzer: StarHTMLAnalyzer, issues: list[Issue]) -> None:
         for i in range(lineno, min(lineno + 5, len(analyzer.lines) + 1)):
             context_lines.append(analyzer._get_line(i))
         context = "\n".join(context_lines)
-        
         # Check if data_effect value has .set() call or .then() (valid patterns)
         # .set() is for assignment: data_effect=total.set(price * quantity)
         # .then() is for conditional execution: data_effect=signal.then(get(...))
         # Both are valid patterns - only warn if neither is present
         has_valid_pattern = ".set(" in context or ".then(" in context
-        
         if not has_valid_pattern:
             # Find the exact line with data_effect
             data_effect_line = lineno
@@ -1159,7 +1182,7 @@ def check_post(analyzer: StarHTMLAnalyzer, issues: list[Issue]) -> None:
                 code="W025",
                 message=f"Component `{func_name}` without `**kwargs` — limits pass-through attributes",
                 original=f"def {func_name}(...):",
-                fix=f"def {func_name}(..., **kwargs):  # then pass **kwargs to root element"
+                fix=f"def {func_name}(..., **kwargs): # then pass **kwargs to root element"
             ))
 
     # W027: File > 400 lines (suggest split)
@@ -1207,8 +1230,8 @@ def check_post(analyzer: StarHTMLAnalyzer, issues: list[Issue]) -> None:
         # Check if js() is used for something that StarHTML could handle
         # Patterns that StarHTML handles well: show/hide, class toggle, simple value updates
         lob_violations = [
-            ("showModal()", "data_show with <dialog> element"),
-            ("close()", "data_show to hide <dialog>"),
+            ("showModal()", "data_show with element"),
+            ("close()", "data_show to hide "),
             (".classList.add", "data_class_* or data_attr_class"),
             (".classList.remove", "data_class_* or data_attr_class"),
             (".style.display", "data_show or data_style_display"),
@@ -1236,7 +1259,6 @@ def auto_fix(source: str) -> str:
     """Apply safe automatic fixes."""
     lines = source.splitlines()
     fixed_lines = []
-
     for line in lines:
         stripped = line.lstrip()
         # W003: wrap walrus := in parens
@@ -1245,7 +1267,6 @@ def auto_fix(source: str) -> str:
             fixed_lines.append(indent + "(" + stripped + ")")
         else:
             fixed_lines.append(line)
-
     return "\n".join(fixed_lines)
 
 
@@ -1253,62 +1274,50 @@ def format_report(issues: list[Issue], analyzer: StarHTMLAnalyzer, filename: str
     """Format the analysis report."""
     errors = [i for i in issues if i.level == "ERROR"]
     warnings = [i for i in issues if i.level == "WARNING"]
-
     lines = [f"── starhtml-check: {filename} ──"]
-
     if not summary_only:
         if errors:
             lines.append(f"\nERRORS ({len(errors)}):")
             for issue in errors:
                 lines.append(str(issue))
-
         if warnings:
             lines.append(f"\nWARNINGS ({len(warnings)}):")
             for issue in warnings:
                 lines.append(str(issue))
-
     # Summary
     lines.append("\nSUMMARY:")
     signals_str = ", ".join(analyzer.signals[:10])
     if len(analyzer.signals) > 10:
         signals_str += f" ... (+{len(analyzer.signals) - 10})"
-    lines.append(f"  SIGNALS  : {signals_str if analyzer.signals else '(none)'}")
-
+    lines.append(f"  SIGNALS : {signals_str if analyzer.signals else '(none)'}")
     events_str = ", ".join(analyzer.events[:5])
     if len(analyzer.events) > 5:
         events_str += f" ... (+{len(analyzer.events) - 5})"
-    lines.append(f"  EVENTS   : {events_str if analyzer.events else '(none)'}")
-
+    lines.append(f"  EVENTS : {events_str if analyzer.events else '(none)'}")
     reactive_str = ", ".join(list(set(analyzer.reactive_attrs))[:10])
     lines.append(f"  REACTIVE : {reactive_str if analyzer.reactive_attrs else '(none)'}")
-
     error_word = "error" if len(errors) == 1 else "errors"
     warning_word = "warning" if len(warnings) == 1 else "warnings"
-    lines.append(f"  ISSUES   : {len(errors)} {error_word}, {len(warnings)} {warning_word}")
-
+    lines.append(f"  ISSUES : {len(errors)} {error_word}, {len(warnings)} {warning_word}")
     if not errors and not warnings:
         lines.append("\n  ✓ No issues found")
     elif summary_only:
         lines.append(f"\n  ✗ Fix {len(errors)} {error_word} before proceeding")
-
     return "\n".join(lines)
 
 
-def analyze(source: str, filename: str = "<stdin>", summary_only: bool = False) -> str:
+def analyze(source: str, filename: str = "", summary_only: bool = False) -> str:
     """Run full analysis on source code."""
     try:
         tree = ast.parse(source)
     except SyntaxError as e:
-        return f"── starhtml-check: {filename} ──\n\nSYNTAX ERROR at line {e.lineno}:\n  {e.text.strip() if e.text else ''}\n  {' ' * (e.offset or 0)}^\n  {e.msg}"
-
+        return f"── starhtml-check: {filename} ──\n\nSYNTAX ERROR at line {e.lineno}:\n {e.text.strip() if e.text else ''}\n {' ' * (e.offset or 0)}^\n {e.msg}"
     analyzer = StarHTMLAnalyzer(source)
     analyzer.visit(tree)
-
     issues = analyzer.issues
     lines = source.splitlines()
     check_regex(source, issues, lines)
     check_post(analyzer, issues)
-
     # Deduplicate by (line, code, message[:40])
     seen = set()
     unique_issues = []
@@ -1317,10 +1326,8 @@ def analyze(source: str, filename: str = "<stdin>", summary_only: bool = False) 
         if key not in seen:
             seen.add(key)
             unique_issues.append(issue)
-
     # Sort by line number
     unique_issues.sort(key=lambda i: (i.line != 0, i.line))
-
     return format_report(unique_issues, analyzer, filename, summary_only)
 
 
@@ -1333,8 +1340,12 @@ def main():
     parser.add_argument("--fix", metavar="FILE", help="Auto-fix safe issues and print result")
     parser.add_argument("--summary", metavar="FILE", help="Compact output (fewer tokens)")
     parser.add_argument("--help-llm", action="store_true", help="Print LLM integration guide")
-
+    parser.add_argument("--update", action="store_true", help="Check for updates and update to latest version from GitHub")
     args = parser.parse_args()
+
+    if args.update:
+        update_checker()
+        sys.exit(0)
 
     if args.help_llm:
         print(HELP_LLM)
@@ -1358,7 +1369,7 @@ def main():
         sys.exit(0)
 
     if args.code:
-        report = analyze(args.code, "<code>")
+        report = analyze(args.code, "")
         print(report)
         sys.exit(0)
 
