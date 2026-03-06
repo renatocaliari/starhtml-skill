@@ -490,12 +490,26 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                 if kw.arg and isinstance(kw.value, ast.Name):
                     self._backend_signals.add(kw.value.id)
 
-        # I001: Computed Signal
+        # W017: Computed Signal (expression as initial value, auto-updates)
         if func_name == "Signal":
             if len(node.args) >= 2:
                 second_arg = node.args[1]
-                is_literal = isinstance(second_arg, (ast.Constant, ast.List, ast.Dict, ast.Set, ast.Tuple))
-                if not is_literal:
+                # True computed signals use operators or function calls (reactive expressions)
+                is_computed = isinstance(second_arg, (
+                    ast.BinOp,      # price * quantity
+                    ast.BoolOp,     # a and b and c
+                    ast.UnaryOp,    # ~visible
+                    ast.Call,       # all(a, b, c), format(x, y)
+                ))
+                # Variable references and subscripts are NOT computed (just data passing)
+                is_reference = isinstance(second_arg, (
+                    ast.Name,       # count, my_var
+                    ast.Subscript,  # todo["completed"], data[key]
+                    ast.Attribute,  # user.name, obj.prop
+                ))
+                
+                # Only flag if it's a computed expression, not a simple reference
+                if is_computed and not is_reference:
                     self.issues.append(Issue(
                         level="WARNING",
                         line=node.lineno,
@@ -517,13 +531,23 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
 
         # W015: delete() HTTP action without confirmation (UX risk)
         if func_name == "delete":
-            self.issues.append(Issue(
-                level="WARNING",
-                line=node.lineno,
-                code="W015",
-                message="`delete()` HTTP action — ensure user confirmation UX exists",
-                original=self._get_line(node.lineno)
-            ))
+            # Check if delete is inside a confirmation pattern (AlertDialog, confirm, etc.)
+            line_text = self._get_line(node.lineno).lower()
+            has_confirmation_pattern = (
+                "alertdialog" in line_text or
+                "alert_dialog" in line_text or
+                "confirm" in line_text
+            )
+            
+            # Only warn if no confirmation pattern detected
+            if not has_confirmation_pattern:
+                self.issues.append(Issue(
+                    level="WARNING",
+                    line=node.lineno,
+                    code="W015",
+                    message="`delete()` HTTP action — verify confirmation UX exists (AlertDialog, confirm dialog, etc.)",
+                    original=self._get_line(node.lineno)
+                ))
 
         # W009: f-string in elements() selector
         if func_name == "elements":
