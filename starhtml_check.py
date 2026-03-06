@@ -7,204 +7,17 @@ Usage:
   python starhtml_check.py
   python starhtml_check.py --code "..."
   python starhtml_check.py --summary
-  python starhtml_check.py --help-llm
   python starhtml_check.py --update
 """
 import ast
 import re
 import sys
 import argparse
-import textwrap
 import hashlib
 import shutil
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Literal, Optional
-
-HELP_LLM = textwrap.dedent("""
-# StarHTML Checker — LLM Integration Guide
-
-## SEVERITY LEVELS (production-ready mindset)
-
-### 🔴 ERROR (BLOCKER — do not ship)
-- **Broken code**: SyntaxError, NameError, reactivity broken
-- **Bugs**: UX issues, security risks, performance problems
-- **Action**: Fix ALL before deploying — production must be reliable
-
-### 🟡 WARNING (REVIEW — may be intentional)
-- **Code quality**: Style, conventions, naming
-- **Potential issues**: Review to ensure it's intentional
-- **Action**: Review each case, document if keeping intentionally
-
-## COMMANDS
-
-python starhtml_check.py           # full analysis
-python starhtml_check.py --summary f.py   # compact output (fewer tokens)
-python starhtml_check.py --code "..."     # analyze inline snippet
-python starhtml_check.py --help-llm       # this guide
-python starhtml_check.py --update         # check for updates and update
-
-## UPDATING
-
-python starhtml_check.py --update
-# Checks GitHub for latest version, creates backup, updates automatically
-
-## LLM WORKFLOW
-
-1. **Write** — Generate StarHTML component
-2. **Check** — Run: `python starhtml_check.py file.py`
-3. **Fix ERRORs** — Address all ERROR-level issues first
-4. **Re-run** — Repeat until no errors, then fix WARNINGs
-
-## OUTPUT FORMAT
-
-- **ERRORS** — must fix, will break runtime or reactivity
-- **WARNINGS** — should fix, may cause subtle bugs or UX issues
-- **SUMMARY** — signal inventory + total counts
-
-## ERROR CODES (must fix)
-
-- **E001** — positional arg after keyword → caught by Python parser
-  GOT: Div(cls="container", "Hello")
-  FIX: Div("Hello", cls="container")
-  Note: This is a Python SyntaxError — your editor/IDE should catch it
-
-- **E002** — f-string in reactive attribute → static, won't update in browser
-  GOT: data_text=f"Count: {counter}"
-  FIX: data_text="Count: " + counter
-       data_text=f("Count: {c}", c=counter) # for 3+ signals
-
-- **E003** — f-string URL in HTTP action with Signal variable → static, won't update
-  GOT: data_on_click=get(f"/api/{item_id}") # where item_id is a Signal
-  FIX: data_on_click=get("/api/item", id=item_id_sig)
-  NOTE: Does NOT flag if variable is a function parameter (not a Signal)
-        Does NOT flag dict.get() like data.get(f"key_{id}")
-
-- **E004** — special chars (`:` `/` `[` `]`) in `data_class_*` keyword name → Python parse error
-  GOT: data_class_hover:bg-blue=sig
-  FIX: data_attr_class=sig.if_("hover:bg-blue-500", "")
-
-- **E005** — camelCase Signal name → must be snake_case
-  GOT: Signal("myCounter", 0)
-  FIX: Signal("my_counter", 0)
-
-- **E006** — `f()` helper used without import → NameError at runtime
-  GOT: (uses f() but no import)
-  FIX: from starhtml.datastar import f
-
-- **E007** — `data_attr_class` and `data_attr_cls` on same element → different behaviors
-  GOT: Div(data_attr_class=..., data_attr_cls=...)
-  FIX: Use only one (data_attr_class replaces, data_attr_cls adds)
-
-- **E008** — walrus `:=` Signal without outer parentheses → won't register as positional arg, breaks reactivity
-  GOT: name := Signal("name", "")
-  FIX: (name := Signal("name", ""))
-  NOTE: Without parens, Signal is not passed to parent element!
-
-## WARNING CODES (review — may be intentional)
-
-- **W003** — 3+ signals with `&` operator — prefer `all()` for readability
-  GOT: a & b & c  # 3 signals chained
-  FIX: all(a, b, c)
-
-- **W008** — Signal name too short → prefer descriptive snake_case names
-  GOT: Signal("x", 0)
-  FIX: Signal("counter", 0)
-
-- **W012** — Signal with empty name → use descriptive snake_case names
-  GOT: Signal("", 0)
-  FIX: Signal("counter", 0)
-
-- **W015** — `delete()` HTTP action without confirmation → accidental data loss risk
-  GOT: data_on_click=delete("/api/item", id=123)
-  FIX: Add confirmation: data_on_click=confirm("Delete?").then(delete(...))
-
-- **W016** — Signal used but not defined → will cause runtime error
-  GOT: data_text=count  # count was never defined
-  FIX: Define signal: (count := Signal("count", 0))
-
-- **W017** — Computed Signal detected (expression as initial value, auto-updates)
-  GOT: (doubled := Signal("doubled", count * 2))
-
-- **W018** — `_ref_only=True` Signal — correctly excluded from `data-signals`
-
-- **W019** — f-string in `elements()` selector — verify selector is static
-  GOT: elements(content, f"#todo-{id}")
-
-- **W020** — `elements()` replace-mode without explicit `id` — element may not be targetable later
-  GOT: elements(Div(cls="content"), "#target")
-  FIX: elements(Div(id="target", cls="content"), "#target")
-  NOTE: No warning if element has `id=`, uses variable/function return, or uses append/prepend mode
-
-- **W021** — `switch()` used for CSS classes — use `collect()` to combine multiple classes
-  GOT: data_attr_class=switch([(is_active, "active")], default="")
-  FIX: data_attr_class=collect([(is_active, "active")])
-
-- **W022** — `collect()` used for exclusive logic — use `switch()` or `if_()` for single result
-  GOT: data_text=collect([(is_valid, "OK", "Error")])
-  FIX: data_text=status.if_("Active", "Inactive")
-
-- **W023** — `.then()` without conditional signal — verify a boolean signal is used
-  GOT: data_on_click=then(post("/api/save"))
-  FIX: data_on_click=is_valid.then(post("/api/save"))
-
-- **W024** — `data_effect` without `.set()` or `.then()` — use valid patterns
-  GOT: data_effect=price * quantity
-  FIX: data_effect=total.set(price * quantity)  # for assignment
-       data_effect=trigger.then(get("/api"))    # for conditional execution (OK!)
-
-- **W025** — Component function without `**kwargs` — limits pass-through attributes
-  GOT: def Modal(body_content):
-  FIX: def Modal(body_content, **kwargs):
-
-- **W026** — `f()` helper with < 3 signals — prefer `+` operator for 1-2 signals
-  GOT: f("Hello {name}", name=username)  # only 1 signal
-  FIX: "Hello " + username  (saves tokens)
-
-## ERROR CODES (BUGS — broken code, do not ship)
-
-- **E001** — positional arg after keyword → caught by Python parser
-- **E002** — f-string in reactive attribute → static, won't update in browser
-- **E003** — f-string URL in HTTP action → Python-static, signal value not reactive
-- **E004** — special chars in `data_class_*` keyword → Python parse error
-- **E005** — camelCase Signal name → must be snake_case
-- **E006** — `f()` helper used without import → NameError at runtime
-- **E007** — `data_attr_class` and `data_attr_cls` on same element → different behaviors
-- **E008** — walrus `:=` Signal without outer parens → breaks reactivity
-- **E009** — `data_show` without flash prevention → element flashes before JS loads
-- **E010** — form submit without `is_valid` guard → submits invalid data
-- **E011** — `data_on_scroll`/`data_on_input` without throttle/debounce → performance bug
-- **E012** — `@sse` endpoint without `yield signals()` reset → client state not cleaned up
-- **E013** — `Icon()` without explicit size → inherits 1em from font-size
-- **E014** — `js()` raw JavaScript → potential security risk
-- **E015** — Plugin data attribute used without plugin registration
-- **E016** — `data_on_submit` with `post()` without `{"prevent": True}` — form reloads page
-- **E017** — `Signal.value` access — Signals don't have .value attribute
-- **E018** — `len(signal)` — Signals don't support len()
-- **E019** — `signals()` with positional arguments — use keyword arguments
-
-## WARNING CODES (review — may be intentional)
-
-- **W003** — 3+ signals with `&` operator — prefer `all()` for readability
-- **W008** — Signal name too short
-- **W012** — Signal with empty name
-- **W015** — `delete()` without confirmation
-- **W016** — Signal used but not defined
-- **W017** — Computed Signal detected
-- **W018** — `_ref_only=True` Signal
-- **W019** — f-string in `elements()` selector
-- **W020** — `elements()` replace-mode without explicit `id`
-- **W021** — `switch()` for CSS classes — use `collect()`
-- **W022** — `collect()` for exclusive logic — use `switch()` or `if_()`
-- **W023** — `.then()` without conditional signal
-- **W024** — `data_effect` without `.set()`
-- **W025** — Component function without `**kwargs`
-- **W026** — `f()` helper with < 3 signals
-- **W027** — File > 400 lines — consider splitting
-- **W028** — Deep nesting (>3 levels) — extract to sub-component
-- **W029** — Signal not used in backend without `_` prefix
-- **W030** — js() that StarHTML can handle — LoB violation
-""")
 
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/renatocaliari/starhtml-skill/main/starhtml_check.py"
 
@@ -1321,16 +1134,11 @@ def main():
     parser.add_argument("file", nargs="?", help="File to analyze")
     parser.add_argument("--code", help="Analyze inline code snippet")
     parser.add_argument("--summary", metavar="FILE", help="Compact output (fewer tokens)")
-    parser.add_argument("--help-llm", action="store_true", help="Print LLM integration guide")
     parser.add_argument("--update", action="store_true", help="Check for updates and update to latest version from GitHub")
     args = parser.parse_args()
 
     if args.update:
         update_checker()
-        sys.exit(0)
-
-    if args.help_llm:
-        print(HELP_LLM)
         sys.exit(0)
 
     if args.summary:
