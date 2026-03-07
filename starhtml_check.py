@@ -675,6 +675,51 @@ class StarHTMLAnalyzer(ast.NodeVisitor):
                 ))
         self.generic_visit(node)
 
+    def visit_If(self, node: ast.If):
+        # W031: Signal used as Python boolean — Signals aren't data containers
+        self._check_signal_as_boolean(node.test, node.lineno)
+        self.generic_visit(node)
+
+    def visit_IfExp(self, node: ast.IfExp):
+        # W031: Signal used as Python boolean in ternary expression
+        self._check_signal_as_boolean(node.test, node.lineno)
+        self.generic_visit(node)
+
+    def visit_While(self, node: ast.While):
+        # W031: Signal used as Python boolean in while loop
+        self._check_signal_as_boolean(node.test, node.lineno)
+        self.generic_visit(node)
+
+    def _check_signal_as_boolean(self, test_node: ast.AST, lineno: int) -> None:
+        """Check if a Signal is used as a boolean in Python conditionals."""
+        # Direct: if is_saving:
+        if isinstance(test_node, ast.Name):
+            if test_node.id in self._defined_signals:
+                self.issues.append(Issue(
+                    level="WARNING",
+                    line=lineno,
+                    code="W031",
+                    message=f"Signal `{test_node.id}` used as Python boolean — Signals aren't data containers",
+                    original=self._get_line(lineno),
+                    fix=f"Use reactive attribute: data_show={test_node.id} or data_text={test_node.id}.if_(\"true\", \"false\")"
+                ))
+        # Negation: if not is_saving:
+        elif isinstance(test_node, ast.UnaryOp) and isinstance(test_node.op, ast.Not):
+            if isinstance(test_node.operand, ast.Name):
+                if test_node.operand.id in self._defined_signals:
+                    self.issues.append(Issue(
+                        level="WARNING",
+                        line=lineno,
+                        code="W031",
+                        message=f"Signal `{test_node.operand.id}` used as Python boolean — Signals aren't data containers",
+                        original=self._get_line(lineno),
+                        fix=f"Use reactive attribute: data_show=~{test_node.operand.id} or data_text=~{test_node.operand.id}.if_(\"false\", \"true\")"
+                    ))
+        # Boolean ops: if is_saving and is_valid:
+        elif isinstance(test_node, ast.BoolOp):
+            for value in test_node.values:
+                self._check_signal_as_boolean(value, lineno)
+
     def _calculate_nesting_depth(self, node: ast.AST, current_depth: int = 0, max_depth: int = 10) -> int:
         """Calculate maximum nesting depth of HTML elements in a node."""
         if current_depth > max_depth:
