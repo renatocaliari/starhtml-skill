@@ -150,11 +150,45 @@ def search(req, query: Signal):  # Receives Signal from frontend
 (_cache := Signal("_cache", {}, _ref_only=True))
 ```
 
+### ⚠️ Common Signal Mistakes
+
+**Mistake 1: f-string with Signal — displays `$signal_name` literal**
+
+```python
+(thought_count := Signal("thought_count", 5))
+
+# ❌ WRONG — f-string converts Signal to literal string "$thought_count"
+Div(f"{thought_count} thoughts captured")  # Shows: "$thought_count thoughts captured"
+
+# ✅ RIGHT — Signal as argument (concatenates value)
+Div(thought_count, " thoughts captured")  # Shows: "5 thoughts captured"
+
+# ✅ RIGHT — Reactive attribute (updates dynamically)
+Span(data_text=thought_count)
+```
+
+**Mistake 2: Signal in Python conditional — always truthy**
+
+```python
+(is_saving := Signal("is_saving", False))
+
+# ❌ WRONG — Signal object is always truthy in Python
+Button("Save" if not is_saving else "Saving...")  # Always shows "Saving..."
+
+# ✅ RIGHT — Use reactive attribute
+Button(
+    "Save this thought",
+    data_text=is_saving.if_("Saving...", "Save this thought")
+)
+```
+
 **Key points:**
 - Never try to read `signal.value` or use `len(signal)` — Signals are not containers
 - Store data in Python variables; use Signals for reactive state that syncs UI
 - Signals without `_` prefix automatically sync to backend via parameters
 - In SSE: always `yield signals(...)` at the end to reset state
+- **NEVER use f-strings with Signals — use arguments or `data_text`**
+- **NEVER use Signals in Python conditionals — use reactive attributes
 
 ---
 
@@ -286,6 +320,48 @@ def search(req, query: Signal):  # Receives Signal from frontend
     data_on_click=get(f"/api/{item_id}")
     # RIGHT — pass signal as parameter:
     data_on_click=get("/api/item", id=item_id_sig)
+
+### ⚠️ POST Endpoint Data Parsing (Critical!)
+
+**Datastar sends JSON by default, NOT form data.**
+
+```python
+# ❌ WRONG — Datastar sends JSON, req.form() returns empty!
+@rt("/todos", methods=["POST"])
+def create(req):
+    form = req.form()  # Returns empty dict!
+    text = form.get("text", "")  # Always empty
+    mood = form.get("mood", "")
+
+# ✅ RIGHT — Parse JSON first (Datastar default)
+@rt("/todos", methods=["POST"])
+def create(req):
+    import json
+    data = json.loads(req.body())
+    text = data.get("text", "")
+    mood = data.get("mood", "")
+
+# ✅ RIGHT — Support both JSON and form data (defensive)
+@rt("/todos", methods=["POST"])
+def create(req):
+    import json
+    try:
+        data = json.loads(req.body())
+        text = data.get("text", "")
+        mood = data.get("mood", "")
+    except (json.JSONDecodeError, ValueError):
+        # Fallback for traditional form submissions
+        form = req.form()
+        text = form.get("text", "")
+        mood = form.get("mood", "")
+```
+
+**Why this happens:**
+- Datastar uses `fetch()` with `Content-Type: application/json`
+- Traditional HTML forms use `Content-Type: application/x-www-form-urlencoded`
+- StarHTML/StarUI components send JSON by default
+
+**Best Practice:** Always parse JSON first, optionally fallback to form data for compatibility.
 
     # SSE endpoint — always yield signals() at end to reset client state
     @rt("/send", methods=["POST"])
@@ -440,8 +516,11 @@ For slot system: see `./reference/slots.md`
 | `Method not found on $signal` (JS console) | Using plugin attributes without registering | Import and register: `app.register(persist)` |
 | `NameError: name 'xyz' is not defined` | Using Signal without walrus `:=` parentheses | Wrap in parens: `(xyz := Signal("xyz", 0))` |
 | `SyntaxError: positional argument follows keyword argument` | Wrong argument order | Content first, attributes after: `Div("text", cls="class")` |
+| **Displays `$signal_name` literal** | f-string with Signal — converts to string | Use arguments: `Div(count, " items")` or `data_text=count` |
+| **Button always shows wrong text** | Signal in Python conditional — always truthy | Use reactive: `data_text=is_saving.if_("Saving...", "Save")` |
 | Element flashes before hiding on load | Missing flash prevention | Add `style="display:none"` with `data_show` |
 | Form submits and reloads page | Missing `{"prevent": True}` | Add: `data_on_submit=(post("/api"), {"prevent": True})` |
+| **POST returns 400 Bad Request** | Datastar sends JSON, not form data | Parse JSON: `data = json.loads(req.body())` |
 | SSE endpoint leaves UI in loading state | Missing `yield signals()` reset | Always end with: `yield signals(loading=False)` |
 | Signal value not updating in backend handler | Trying to read `signal.value` | Receive Signal as parameter: `def handler(req, my_sig: Signal)` |
 | **Direct Datastar import** | Importing `@getdatastar/datastar` manually | **Remove it** — StarHTML manages Datastar automatically |
